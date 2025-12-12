@@ -11,40 +11,44 @@ from typing import List, Optional
 qccd_grammar = """
     start: instruction+
 
-    instruction: gate | movement | measure | reset | barrier | comment
+    instruction: gate_op | movement_op | measure_op | reset_op | barrier_op | comment
 
-    // --- 1. 量子ゲート命令 (LIZ内) ---
-    // 文法: 命令 ターゲットリスト [パラメータ] 時間
-    // 例: MS 0 1 40.0
-    // 例: R 0 [3.14] 5.0
+    // --- 基本型の定義 ---
+    ion_id:    INT
+    trap_id:   INT
+    site_id:   INT
+    angle:     FLOAT
     
-    gate: ms_gate | r_gate
+    // 先生の提案: (TrapId, SiteId)
+    // 例: (10, 2) -> トラップ10番の、2番目のサイト
+    location: "(" trap_id "," site_id ")"
 
-    ms_gate: "MS" targets duration      -> ms_op
-    r_gate:  "R"  targets params duration -> r_op
+    // --- 1. 量子ゲート命令 ---
+    gate_op: ms_op | r_op
 
-    // --- 2. 移動命令 (Architecture) ---
-    // 文法: 命令 ターゲットリスト [from -> to] 時間
-    // 例: MOVE 0 1 -> 2 5.0  (イオン0をノード1から2へ移動、5us)
-    
-    movement: move_op | split_op | merge_op | swap_op
+    // ゲート操作も「場所」を明示したほうが親切かもしれません
+    // (省略して ion_id だけでも良いですが、統一感のため入れるのもアリです)
+    ms_op: "MS" ion_id ion_id angle
+    r_op:  "R"  ion_id angle angle
 
-    move_op:  "MOVE"  targets location_change duration
-    split_op: "SPLIT" targets location_change duration
-    merge_op: "MERGE" targets location_change duration
-    swap_op:  "SWAP"  targets duration               // 場所変わらず順序のみ
+    // --- 2. 移動命令 (ここが変更点) ---
+    movement_op: shuttle_op | split_op | merge_op | swap_op
+
+    // 先生の定義: SHUTTLE (Ion, Src, Dst)
+    // EBNF風記述: SHUTTLE ion_id location "->" location
+    // 例: SHUTTLE 5 (10, 1) -> (10, 2)
+    shuttle_op: "SHUTTLE" ion_id location "->" location
+
+    // その他の操作もLocationを使う形に更新
+    split_op: "SPLIT" ion_id location
+    merge_op: "MERGE" ion_id location
+    swap_op:  "SWAP"  ion_id ion_id "AT" location
 
     // --- 3. その他の命令 ---
-    measure: "MEASURE" targets duration -> measure_op
-    reset:   "RESET"   targets duration -> reset_op
-    barrier: "BARRIER" targets          -> barrier_op
-
-    // --- 共通要素の定義 ---
-    targets: INT+
-    params:  "[" FLOAT ("," FLOAT)* "]"
-    duration: FLOAT "us"  // 単位(us)を明示的につける設計
-
-    location_change: INT "->" INT  // src_node -> dst_node
+    // measure, resetはLIZ上全てのイオンに行うからidが不要？ BARRIERもAIの出力意図を理解できていない
+    measure_op: "MEASURE" ion_id
+    reset_op:   "RESET"   ion_id
+    barrier_op: "BARRIER" ion_id+
 
     comment: /#.*/
 
@@ -68,33 +72,40 @@ class QCCDTransformer(Transformer):
     
     def FLOAT(self, token):
         return float(token)
-
-    def targets(self, items):
-        return list(items)  # [0, 1] etc.
-
-    def params(self, items):
-        return list(items)  # [3.14, 1.57] etc.
-
-    def duration(self, items):
-        return items[0]  # 時間(float)だけ返す
-
-    def location_change(self, items):
-        return {"src": items[0], "dst": items[1]}
+    
+    def location(self, items):
+        # items: [trap_id, site_id] -> タプルや辞書に変換
+        return {"trap": items[0], "site": items[1]}
 
     # --- 命令ごとの処理 ---
+    def shuttle_op(self, items):
+        # items: [ion_id, src_loc, dst_loc]
+        return {
+            "type": "SHUTTLE",
+            "targets": [items[0]],
+            "src": items[1], # {"trap": 10, "site": 1}
+            "dst": items[2]
+        }
+
     def ms_op(self, items):
-        # items: [targets, duration]
-        return {"type": "MS", "targets": items[0], "duration": items[1]}
+        # EBNF: "MS" ion_id ion_id angle
+        # items: [ion1, ion2, angle]
+        return {
+            "type": "MS",
+            "targets": [items[0], items[1]],
+            "params": [items[2]]  # angleをparamsリストに入れる設計の場合
+        }
 
     def r_op(self, items):
-        # items: [targets, params, duration]
-        return {"type": "R", "targets": items[0], "params": items[1], "duration": items[2]}
-
-    def move_op(self, items):
-        # items: [targets, {src, dst}, duration]
-        return {"type": "MOVE", "targets": items[0], "loc": items[1], "duration": items[2]}
-
-    # ... (他の命令も同様に実装) ...
+        # EBNF: "R" ion_id angle angle
+        # items: [ion, theta, phi]
+        return {
+            "type": "R",
+            "targets": [items[0]],
+            "angles": [items[1], items[2]]
+        }
+    
+    # TODO: ... measure, resetも同様に実装 ...
     
     def instruction(self, items):
         return items[0]
