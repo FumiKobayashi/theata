@@ -45,9 +45,10 @@ qccd_grammar = """
     swap_op:  "SWAP"  ion_id ion_id "AT" location
 
     // --- 3. その他の命令 ---
-    // measure, resetはLIZ上全てのイオンに行うからidが不要？ BARRIERもAIの出力意図を理解できていない
-    measure_op: "MEASURE" ion_id
-    reset_op:   "RESET"   ion_id
+    // measure, resetはLIZ上全てのイオンに行うから1個以上のid入力を許す設計 
+    // BARRIERに関してはAIの出力意図を理解できていない
+    measure_op: "MEASURE" ion_id+
+    reset_op:   "RESET"   ion_id+
     barrier_op: "BARRIER" ion_id+
 
     comment: /#.*/
@@ -106,6 +107,21 @@ class QCCDTransformer(Transformer):
         }
     
     # TODO: ... measure, resetも同様に実装 ...
+    def measure_op(self, items):
+        # EBNF: "MEASURE" ion_id+
+        # items: [ion1, ion2, ...]
+        return{
+            "type": "MEASURE",
+            "targets": items
+        }
+    
+    def reset_op(self, items):
+        # EBNF: "RESET" ion_id+
+        # items: [ion1, ion2, ...]
+        return{
+            "type": "RESET",
+            "targets": items
+        }
     
     def instruction(self, items):
         return items[0]
@@ -123,18 +139,18 @@ if __name__ == "__main__":
     # 将来コンパイラが出力するであろうテキスト形式の想定
     sample_qccd_code = """
     # Initialization
-    RESET 0 1 50.0us
+    RESET 0 1
     
     # Gate Execution
-    R 0 [1.57] 5.0us
-    R 1 [3.14] 5.0us
-    MS 0 1 40.0us
+    R 0 1.57 0.0
+    R 1 3.14 1.57
+    MS 0 1 0.0
     
     # Shuttling (Data Evacuation)
-    MOVE 2 10 -> 11 5.0us
+    SHUTTLE 2 (1, 10) -> (2, 0) 
     
     # Final Measurement
-    MEASURE 0 1 400.0us
+    MEASURE 0 1 
     """
 
     print("--- QCCD Source Code ---")
