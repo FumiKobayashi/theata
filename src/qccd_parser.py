@@ -46,7 +46,7 @@ qccd_grammar = """
 
     // --- 3. その他の命令 ---
     // measure, resetはLIZ上全てのイオンに行うから1個以上のid入力を許す設計 
-    // BARRIERに関してはAIの出力意図を理解できていない
+    // BARRIER: 並列ブロックを表す
     measure_op: "MEASURE" ion_id+
     reset_op:   "RESET"   ion_id+
     barrier_op: "BARRIER" ion_id+
