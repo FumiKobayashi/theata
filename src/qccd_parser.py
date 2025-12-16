@@ -1,43 +1,46 @@
 from lark import Lark, Transformer
-from dataclasses import dataclass
-from typing import List, Optional
+from ast_def import (
+    Location, Operation, QubitDecl, GateOp, MovementOp, 
+    MeasureOp, ResetOp, BarrierOp, Program
+)
 
-# ---------------------------------------------------------
-# QCCD Native EBNF Definition
-# ---------------------------------------------------------
+# ==========================================
+# EBNF (文法定義)
+# ==========================================
+# 先生の要望通り、declaration (初期配置) を追加しました
 qccd_grammar = """
-    start: instruction+
+    start: (declaration | instruction)+
 
+    // --- 宣言部 (初期配置) ---
+    declaration: "QUBIT" ion_id "AT" location
+
+    // --- 命令部 ---
     instruction: gate_op | movement_op | measure_op | reset_op | barrier_op | comment
 
-    // --- 基本型の定義 ---
+    // 基本型
     ion_id:    INT
     trap_id:   INT
     site_id:   INT
     angle:     FLOAT
-    
-    // 先生の提案: (TrapId, SiteId)
     location: "(" trap_id "," site_id ")"
 
-    // --- 1. 量子ゲート命令 ---
+    // ゲート
     gate_op: ms_op | r_op
-
     ms_op: "MS" ion_id ion_id angle
     r_op:  "R"  ion_id angle angle
 
-    // --- 2. 移動命令 ---
+    // 移動
     movement_op: shuttle_op | split_op | merge_op | swap_op
-
     shuttle_op: "SHUTTLE" ion_id location "->" location
-    split_op: "SPLIT" ion_id location
-    merge_op: "MERGE" ion_id location
-    swap_op:  "SWAP"  ion_id ion_id "AT" location
+    split_op:   "SPLIT"   ion_id location
+    merge_op:   "MERGE"   ion_id location
+    swap_op:    "SWAP"    ion_id ion_id "AT" location
 
-    // --- 3. その他の命令 ---
+    // その他
     measure_op: "MEASURE" ion_id+
     reset_op:   "RESET"   ion_id+
     barrier_op: "BARRIER" ion_id+
-
+    
     comment: /#.*/
 
     %import common.INT
@@ -48,12 +51,12 @@ qccd_grammar = """
     %ignore NEWLINE
 """
 
-# ---------------------------------------------------------
-# Transformer (Text -> Python Object)
-# ---------------------------------------------------------
-class QCCDTransformer(Transformer):
+# ==========================================
+# 3. Transformer (Tree -> AST Objects)
+# ==========================================
+class QCCDASTTransformer(Transformer):
     """
-    パースされた木構造を、処理しやすい辞書に変換する
+    LarkのTreeを読み込み、上記で定義したデータクラスのインスタンスに変換する
     """
     def INT(self, token):
         return int(token)
@@ -61,135 +64,116 @@ class QCCDTransformer(Transformer):
     def FLOAT(self, token):
         return float(token)
     
-    # --- 基本型をそのまま値として返す ---
-    def ion_id(self, items):
-        return items[0]
-    
-    def trap_id(self, items):
-        return items[0]
-    
-    def site_id(self, items):
-        return items[0]
-    
-    def angle(self, items):
-        return items[0]
+    # 基本型の処理
+    def ion_id(self, items): return items[0]
+    def trap_id(self, items): return items[0]
+    def site_id(self, items): return items[0]
+    def angle(self, items): return items[0]
     
     def location(self, items):
-        return {"trap": items[0], "site": items[1]}
-    
-    # --- 中間ノードを透過させる ---
-    def gate_op(self, items):
-        return items[0]
-    
-    def movement_op(self, items):
-        return items[0]
-    
-    # --- コメントはNoneを返す ---
-    def comment(self, items):
-        return None
+        return Location(trap=items[0], site=items[1])
 
-    # --- 命令ごとの処理 ---
-    def shuttle_op(self, items):
-        return {
-            "type": "SHUTTLE",
-            "targets": [items[0]],
-            "src": items[1],
-            "dst": items[2]
-        }
+    # --- Declaration (初期配置) ---
+    def declaration(self, items):
+        return QubitDecl(id=items[0], location=items[1])
 
+    # --- Gate Operations ---
     def ms_op(self, items):
-        return {
-            "type": "MS",
-            "targets": [items[0], items[1]],
-            "params": [items[2]]
-        }
+        return GateOp(type="MS", targets=[items[0], items[1]], params=[items[2]])
 
     def r_op(self, items):
-        return {
-            "type": "R",
-            "targets": [items[0]],
-            "angles": [items[1], items[2]]
-        }
+        return GateOp(type="R", targets=[items[0]], params=[items[1], items[2]])
+
+    # --- Movement Operations ---
+    def shuttle_op(self, items):
+        return MovementOp(type="SHUTTLE", targets=[items[0]], src=items[1], dst=items[2])
     
     def split_op(self, items):
-        return {
-            "type": "SPLIT",
-            "targets": [items[0]],
-            "location": items[1]
-        }
-    
+        # SPLITは場所を指定して実行(src/dstの概念は文脈によるが、ここではdst=locationとする例)
+        return MovementOp(type="SPLIT", targets=[items[0]], dst=items[1])
+
     def merge_op(self, items):
-        return {
-            "type": "MERGE",
-            "targets": [items[0]],
-            "location": items[1]
-        }
+        return MovementOp(type="MERGE", targets=[items[0]], dst=items[1])
     
     def swap_op(self, items):
-        return {
-            "type": "SWAP",
-            "targets": [items[0], items[1]],
-            "location": items[2]
-        }
-    
+        # SWAPは2つのイオン、1つの場所
+        return MovementOp(type="SWAP", targets=[items[0], items[1]], dst=items[2])
+
+    # --- Other Operations ---
     def measure_op(self, items):
-        return {
-            "type": "MEASURE",
-            "targets": list(items)
-        }
-    
+        return MeasureOp(targets=list(items)) # items全体がion_idのリスト
+
     def reset_op(self, items):
-        return {
-            "type": "RESET",
-            "targets": list(items)
-        }
+        return ResetOp(targets=list(items))
     
     def barrier_op(self, items):
-        return {
-            "type": "BARRIER",
-            "targets": list(items)
-        }
-    
-    def instruction(self, items):
-        return items[0]
+        return BarrierOp(targets=list(items))
 
+    # --- Passthrough & Comment ---
+    def gate_op(self, items): return items[0]
+    def movement_op(self, items): return items[0]
+    def instruction(self, items): return items[0]
+    def comment(self, items): return None
+
+    # --- Root (Start) ---
     def start(self, items):
-        return [item for item in items if item is not None]
+        # None (コメント) を除去
+        valid_items = [x for x in items if x is not None]
+        
+        # 宣言と命令を分別して Program オブジェクトに格納
+        decls = [x for x in valid_items if isinstance(x, QubitDecl)]
+        insts = [x for x in valid_items if isinstance(x, Operation)]
+        
+        return Program(declarations=decls, instructions=insts)
 
 
-# ---------------------------------------------------------
+# ==========================================
 # 動作確認
-# ---------------------------------------------------------
+# ==========================================
 if __name__ == "__main__":
     parser = Lark(qccd_grammar, start='start')
-    transformer = QCCDTransformer()
+    transformer = QCCDASTTransformer()
 
-    sample_qccd_code = """
-    # Initialization
+    # サンプルコード（初期配置を追加）
+    code = """
+    # Initial Placement (Professor's Request)
+    QUBIT 0 AT (1, 1)
+    QUBIT 1 AT (1, 2)
+    QUBIT 2 AT (1, 10)
+
+    # Operations
     RESET 0 1
-    
-    # Gate Execution
     R 0 1.57 0.0
-    R 1 3.14 1.57
     MS 0 1 0.0
     
-    # Shuttling (Data Evacuation)
-    SHUTTLE 2 (1, 10) -> (2, 0) 
+    # Movement
+    SHUTTLE 2 (1, 10) -> (2, 0)
     
-    # Final Measurement
-    MEASURE 0 1 
+    # Measurement
+    MEASURE 0 1
     """
 
-    print("--- QCCD Source Code ---")
-    print(sample_qccd_code)
+    print("--- Source Code ---")
+    print(code)
 
     try:
-        tree = parser.parse(sample_qccd_code)
-        result = transformer.transform(tree)
+        tree = parser.parse(code)
+        program = transformer.transform(tree)
         
-        print("\n--- Parsed Objects ---")
-        for cmd in result:
-            print(cmd)
+        print("\n--- AST Output (Program Object) ---")
+        print(f"Declarations ({len(program.declarations)}):")
+        for decl in program.declarations:
+            print(f"  {decl}")
             
+        print(f"\nInstructions ({len(program.instructions)}):")
+        for inst in program.instructions:
+            print(f"  {inst}")
+            
+            # クラスだからできること：プロパティアクセス
+            if isinstance(inst, MovementOp):
+                print(f"    -> Accessing property: Moving Ion {inst.targets[0]} to {inst.dst}")
+
     except Exception as e:
         print(e)
+        import traceback
+        traceback.print_exc()
