@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional, Tuple, Tuple
 from ast_def import (
     Location, QubitDecl, Operation,
-    GateOp, ShuttleOp, MeasureOp, ResetOp, Program
+    GateOp, ShuttleOp, SwapOp, MeasureOp, ResetOp, Program
 )
 from dag_builder import DAG, DAGNode
 
@@ -251,6 +251,40 @@ class QCCDState:
         self.zone_contents[src_zone_id].remove(ion_id)
         self.zone_contents[dst_zone_id].append(ion_id)
         self.ion_locations[ion_id] = dst_zone_id
+    
+    def get_ion_position_in_zone(self, ion_id: int) -> int:
+        """ゾーン内でのイオンの位置（インデックス）を取得"""
+        zone_id = self.locate(ion_id)
+        return self.zone_contents[zone_id].index(ion_id)
+    
+    def swap_ions(self, ion_a: int, ion_b: int):
+        """同一ゾーン内の2つのイオンの位置を交換（状態を更新）"""
+        zone_a = self.locate(ion_a)
+        zone_b = self.locate(ion_b)
+        
+        if zone_a != zone_b:
+            raise ValueError(f"Cannot swap ions in different zones: {ion_a} in {zone_a}, {ion_b} in {zone_b}")
+        
+        contents = self.zone_contents[zone_a]
+        pos_a = contents.index(ion_a)
+        pos_b = contents.index(ion_b)
+        contents[pos_a], contents[pos_b] = contents[pos_b], contents[pos_a]
+    
+    def is_at_left_edge(self, ion_id: int) -> bool:
+        """イオンがゾーンの左端にいるか"""
+        return self.get_ion_position_in_zone(ion_id) == 0
+    
+    def is_at_right_edge(self, ion_id: int) -> bool:
+        """イオンがゾーンの右端にいるか"""
+        zone_id = self.locate(ion_id)
+        return self.get_ion_position_in_zone(ion_id) == len(self.zone_contents[zone_id]) - 1
+    
+    def get_ion_at_edge(self, zone_id: int, left: bool) -> Optional[int]:
+        """ゾーンの左端(left=True)または右端(left=False)のイオンを取得"""
+        contents = self.zone_contents[zone_id]
+        if not contents:
+            return None
+        return contents[0] if left else contents[-1]
 
 
 # ==========================================
@@ -300,7 +334,7 @@ class QCCDCompiler:
         
         # 結果を格納
         operations: List[Operation] = []
-        stats = {"gates": 0, "shuttles_in": 0, "shuttles_out": 0, "iterations": 0}
+        stats = {"gates": 0, "shuttles_in": 0, "shuttles_out": 0, "swaps": 0, "iterations": 0}
         
         while not dag.is_complete():
             stats["iterations"] += 1
@@ -316,15 +350,18 @@ class QCCDCompiler:
                 stats["gates"] += 1
             else:
                 # Step 3: 移動操作を挿入
-                shuttle_ops = self._generate_shuttle_ops(dag, front_layer, state)
-                for shuttle_op, direction in shuttle_ops:
-                    operations.append(shuttle_op)
-                    # 状態を更新
-                    state.move_ion(shuttle_op.target, shuttle_op.dst.trap)
-                    if direction == "in":
-                        stats["shuttles_in"] += 1
-                    else:
-                        stats["shuttles_out"] += 1
+                # 注意: _generate_shuttle_ops内で状態は既に更新される
+                movement_ops = self._generate_shuttle_ops(dag, front_layer, state)
+                for op, op_type in movement_ops:
+                    operations.append(op)
+                    # 統計のみ更新（状態は_generate_shuttle_ops内で更新済み）
+                    if isinstance(op, ShuttleOp):
+                        if op_type == "in":
+                            stats["shuttles_in"] += 1
+                        else:
+                            stats["shuttles_out"] += 1
+                    elif isinstance(op, SwapOp):
+                        stats["swaps"] += 1
         
         return CompileResult(operations=operations, stats=stats)
     
@@ -350,23 +387,24 @@ class QCCDCompiler:
                             return node
         return None
     
-    def _generate_shuttle_ops(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> List[Tuple[ShuttleOp, str]]:
+    def _generate_shuttle_ops(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> List[Tuple[Operation, str]]:
         """
         必要な移動操作を生成
         
         Returns:
-            List of (ShuttleOp, direction) where direction is "in" or "out"
+            List of (Operation, op_type) where op_type is "in", "out", or "swap"
         
         プロトタイプ版:
         - Front Layerの最小IDノードに必要なイオンをLIZへ移動
         - LIZが満杯なら、Front Layerで不要なイオンを退避
+        - SHUTTLE前に必要ならSWAPを挿入
         """
         # 最小IDのゲートを対象にする
         for node_id in sorted(front_layer):
             node = dag.nodes[node_id]
             if isinstance(node.operation, (GateOp, ResetOp)):
                 targets = node.operation.targets
-                shuttle_ops = []
+                movement_ops: List[Tuple[Operation, str]] = []
                 
                 # LIZにいないイオンを特定
                 ions_to_bring = [ion_id for ion_id in targets if not state.is_in_liz(ion_id)]
@@ -390,20 +428,32 @@ class QCCDCompiler:
                     eviction_ops = self._generate_eviction_ops(
                         state, target_liz_id, needed_space - current_space, set(targets)
                     )
-                    shuttle_ops.extend(eviction_ops)
-                    # 退避操作を先に状態に反映
-                    for evict_op, _ in eviction_ops:
-                        state.move_ion(evict_op.target, evict_op.dst.trap)
+                    movement_ops.extend(eviction_ops)
+                    # 状態は_generate_eviction_ops内で既に更新済み
                 
                 # イオンをLIZへ移動
                 for ion_id in ions_to_bring:
-                    shuttle_ops.append((
+                    src_zone = state.locate(ion_id)
+                    
+                    # SHUTTLE前に必要ならSWAPを挿入
+                    swap_ops = self._generate_swap_ops_for_shuttle(
+                        state, ion_id, src_zone, target_liz_id
+                    )
+                    movement_ops.extend(swap_ops)
+                    # SWAP操作を状態に反映
+                    for op, _ in swap_ops:
+                        state.swap_ions(op.targets[0], op.targets[1])
+                    
+                    # SHUTTLE操作を追加
+                    movement_ops.append((
                         ShuttleOp(target=ion_id, dst=Location(trap=target_liz_id, site=0)),
                         "in"
                     ))
+                    # SHUTTLE操作を状態に反映
+                    state.move_ion(ion_id, target_liz_id)
                 
-                if shuttle_ops:
-                    return shuttle_ops
+                if movement_ops:
+                    return movement_ops
         
         return []
     
@@ -413,7 +463,7 @@ class QCCDCompiler:
         liz_id: int, 
         num_to_evict: int,
         protected_ions: Set[int]
-    ) -> List[Tuple[ShuttleOp, str]]:
+    ) -> List[Tuple[Operation, str]]:
         """
         LIZからイオンを退避させる操作を生成
         
@@ -423,7 +473,7 @@ class QCCDCompiler:
             num_to_evict: 退避させる数
             protected_ions: 退避させてはいけないイオン（これから使うゲートのターゲット）
         """
-        eviction_ops = []
+        eviction_ops: List[Tuple[Operation, str]] = []
         liz_ions = state.get_liz_ions(liz_id)
         
         # 退避候補: protected_ions に含まれないイオン
@@ -443,12 +493,70 @@ class QCCDCompiler:
         # 退避操作を生成
         for i in range(num_to_evict):
             ion_to_evict = candidates[i]
+            
+            # SHUTTLE前に必要ならSWAPを挿入
+            swap_ops = self._generate_swap_ops_for_shuttle(
+                state, ion_to_evict, liz_id, evict_dst
+            )
+            eviction_ops.extend(swap_ops)
+            # SWAP操作を状態に反映
+            for op, _ in swap_ops:
+                state.swap_ions(op.targets[0], op.targets[1])
+            
+            # SHUTTLE操作を追加
             eviction_ops.append((
                 ShuttleOp(target=ion_to_evict, dst=Location(trap=evict_dst, site=0)),
                 "out"
             ))
+            # SHUTTLE操作を状態に反映
+            state.move_ion(ion_to_evict, evict_dst)
         
         return eviction_ops
+    
+    def _generate_swap_ops_for_shuttle(
+        self,
+        state: QCCDState,
+        ion_id: int,
+        src_zone: int,
+        dst_zone: int
+    ) -> List[Tuple[SwapOp, str]]:
+        """
+        SHUTTLE前に必要なSWAP操作を生成
+        
+        ルール:
+        - dst_zone < src_zone (左へ移動) → 左端(index=0)にいる必要
+        - dst_zone > src_zone (右へ移動) → 右端にいる必要
+        
+        Args:
+            state: 現在の状態
+            ion_id: 移動するイオン
+            src_zone: 移動元ゾーン
+            dst_zone: 移動先ゾーン
+        
+        Returns:
+            List of (SwapOp, "swap")
+        """
+        zone_contents = state.zone_contents[src_zone]
+        
+        # ゾーンにイオンが1つしかない場合、SWAPは不要
+        if len(zone_contents) <= 1:
+            return []
+        
+        current_pos = zone_contents.index(ion_id)
+        
+        if dst_zone < src_zone:
+            # 左へ移動 → 左端(index=0)にいる必要
+            if current_pos == 0:
+                return []  # 既に左端
+            target_ion = zone_contents[0]
+        else:
+            # 右へ移動 → 右端にいる必要
+            if current_pos == len(zone_contents) - 1:
+                return []  # 既に右端
+            target_ion = zone_contents[-1]
+        
+        # 端のイオンとSWAP
+        return [(SwapOp(targets=[ion_id, target_ion]), "swap")]
 
 
 # ==========================================
@@ -477,7 +585,7 @@ if __name__ == "__main__":
     """
     
     print("=" * 60)
-    print("QCCD Compiler Test (Prototype with Eviction)")
+    print("QCCD Compiler Test (Prototype with Eviction and SWAP)")
     print("=" * 60)
     
     # パースとDAG構築
@@ -529,33 +637,82 @@ if __name__ == "__main__":
     print("\nGenerated Operations:")
     for i, op in enumerate(result2.operations):
         op_str = str(op)
-        # 退避操作をハイライト
+        # 操作をハイライト
         if isinstance(op, ShuttleOp):
             if arch2.is_liz(op.dst.trap):
                 op_str += "  ← SHUTTLE IN"
             else:
                 op_str += "  ← SHUTTLE OUT (eviction)"
+        elif isinstance(op, SwapOp):
+            op_str += "  ← SWAP"
         print(f"  [{i}] {op_str}")
     print(f"\nStatistics: {result2.stats}")
     
     # ========================================
-    # Test 3: 複数LIZ構成
+    # Test 3: SWAPが必要なケース
     # ========================================
     print("\n" + "=" * 60)
-    print("Test 3: Dual LIZ (M-L-L-M)")
+    print("Test 3: SWAP required (multiple ions in Memory)")
     print("=" * 60)
     
-    arch3 = QCCDArchitecture.dual_liz(liz_capacity=2)
+    # 回路: Ion 0, 1, 2, 3 で MS 0 3 を実行
+    code3 = """
+    QUBIT 0 AT (0, 0)
+    QUBIT 1 AT (0, 1)
+    QUBIT 2 AT (0, 2)
+    QUBIT 3 AT (0, 3)
+
+    MS 0 3 0.25
+    """
+    
+    program3 = parse(code3)
+    builder3 = DAGBuilder(program3)
+    dag3 = builder3.build()
+    
+    arch3 = QCCDArchitecture.simple_mlm(liz_capacity=4)
     print(f"\nArchitecture: {arch3}")
-    for zone in arch3.zones:
+    
+    # 全イオンをMemory(zone 0)に配置
+    # zone 0 = Memory(左), zone 1 = LIZ, zone 2 = Memory(右)
+    # LIZへ移動するには右端にいる必要（dst > src）
+    # Ion 0 は左端、Ion 3 は右端
+    initial3 = {0: 0, 1: 0, 2: 0, 3: 0}
+    print(f"Initial placement: {initial3}")
+    print("Zone 0 contents: [Ion0, Ion1, Ion2, Ion3] (left to right)")
+    print("To move to LIZ (zone 1), ions must be at right edge")
+    print("Ion 0 needs SWAP, Ion 3 doesn't")
+    
+    compiler3 = QCCDCompiler(arch3)
+    result3 = compiler3.compile(dag3, initial3)
+    
+    print("\nGenerated Operations:")
+    for i, op in enumerate(result3.operations):
+        op_str = str(op)
+        if isinstance(op, ShuttleOp):
+            op_str += "  ← SHUTTLE IN"
+        elif isinstance(op, SwapOp):
+            op_str += "  ← SWAP (to reach edge)"
+        print(f"  [{i}] {op_str}")
+    print(f"\nStatistics: {result3.stats}")
+    
+    # ========================================
+    # Test 4: 複数LIZ構成
+    # ========================================
+    print("\n" + "=" * 60)
+    print("Test 4: Dual LIZ (M-L-L-M)")
+    print("=" * 60)
+    
+    arch4 = QCCDArchitecture.dual_liz(liz_capacity=2)
+    print(f"\nArchitecture: {arch4}")
+    for zone in arch4.zones:
         print(f"  Zone {zone.id}: {zone.zone_type}, capacity={zone.capacity}, position={zone.position}")
     
     # カスタム構成のテスト
     print("\n" + "=" * 60)
-    print("Test 4: Custom architecture")
+    print("Test 5: Custom architecture")
     print("=" * 60)
     
-    arch4 = QCCDArchitecture([("M", 15), ("L", 2), ("L", 2), ("M", 15)])
-    print(f"\nArchitecture: {arch4}")
-    print(f"Adjacent to zone 1: {arch4.get_adjacent_zones(1)}")
-    print(f"Adjacent to zone 2: {arch4.get_adjacent_zones(2)}")
+    arch5 = QCCDArchitecture([("M", 15), ("L", 2), ("L", 2), ("M", 15)])
+    print(f"\nArchitecture: {arch5}")
+    print(f"Adjacent to zone 1: {arch5.get_adjacent_zones(1)}")
+    print(f"Adjacent to zone 2: {arch5.get_adjacent_zones(2)}")
