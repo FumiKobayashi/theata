@@ -258,7 +258,11 @@ class QCCDState:
         return self.zone_contents[zone_id].index(ion_id)
     
     def swap_ions(self, ion_a: int, ion_b: int):
-        """同一ゾーン内の2つのイオンの位置を交換（状態を更新）"""
+        """
+        同一ゾーン内の隣接する2つのイオンの位置を交換（状態を更新）
+        
+        制約: 隣接イオン同士のみSWAP可能
+        """
         zone_a = self.locate(ion_a)
         zone_b = self.locate(ion_b)
         
@@ -268,6 +272,14 @@ class QCCDState:
         contents = self.zone_contents[zone_a]
         pos_a = contents.index(ion_a)
         pos_b = contents.index(ion_b)
+        
+        # 隣接性チェック
+        if abs(pos_a - pos_b) != 1:
+            raise ValueError(
+                f"Cannot swap non-adjacent ions: {ion_a} at pos {pos_a}, {ion_b} at pos {pos_b}. "
+                f"Only adjacent swaps are allowed."
+            )
+        
         contents[pos_a], contents[pos_b] = contents[pos_b], contents[pos_a]
     
     def is_at_left_edge(self, ion_id: int) -> bool:
@@ -523,9 +535,16 @@ class QCCDCompiler:
         """
         SHUTTLE前に必要なSWAP操作を生成
         
+        制約: 隣接イオン同士のみSWAP可能
+        
         ルール:
         - dst_zone < src_zone (左へ移動) → 左端(index=0)にいる必要
         - dst_zone > src_zone (右へ移動) → 右端にいる必要
+        
+        例: [ion_a, ion_b, ion_c, ion_d] で ion_a を右端に移動
+            SWAP(ion_a, ion_b) → [ion_b, ion_a, ion_c, ion_d]
+            SWAP(ion_a, ion_c) → [ion_b, ion_c, ion_a, ion_d]
+            SWAP(ion_a, ion_d) → [ion_b, ion_c, ion_d, ion_a]
         
         Args:
             state: 現在の状態
@@ -545,18 +564,38 @@ class QCCDCompiler:
         current_pos = zone_contents.index(ion_id)
         
         if dst_zone < src_zone:
-            # 左へ移動 → 左端(index=0)にいる必要
-            if current_pos == 0:
-                return []  # 既に左端
-            target_ion = zone_contents[0]
+            # 左へ移動 → 左端(index=0)に移動
+            target_pos = 0
+            direction = -1
         else:
-            # 右へ移動 → 右端にいる必要
-            if current_pos == len(zone_contents) - 1:
-                return []  # 既に右端
-            target_ion = zone_contents[-1]
+            # 右へ移動 → 右端に移動
+            target_pos = len(zone_contents) - 1
+            direction = 1
         
-        # 端のイオンとSWAP
-        return [(SwapOp(targets=[ion_id, target_ion]), "swap")]
+        # 既に目標位置にいる場合
+        if current_pos == target_pos:
+            return []
+        
+        # 隣接SWAPを連続生成
+        swap_ops = []
+        # zone_contentsのコピーを作ってシミュレート
+        simulated_contents = zone_contents.copy()
+        sim_pos = current_pos
+        
+        while sim_pos != target_pos:
+            # 隣接位置
+            next_pos = sim_pos + direction
+            neighbor_ion = simulated_contents[next_pos]
+            
+            # SWAP操作を生成
+            swap_ops.append((SwapOp(targets=[ion_id, neighbor_ion]), "swap"))
+            
+            # シミュレート上の状態を更新
+            simulated_contents[sim_pos], simulated_contents[next_pos] = \
+                simulated_contents[next_pos], simulated_contents[sim_pos]
+            sim_pos = next_pos
+        
+        return swap_ops
 
 
 # ==========================================
