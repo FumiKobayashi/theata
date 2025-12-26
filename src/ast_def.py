@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Set
+from typing import List, Set, Optional
 
 # ==========================================
 # 基本型
@@ -71,21 +71,35 @@ class SwapOp(Operation):
 class SplitOp(Operation):
     """
     スプリット操作: イオンチェーンを分割
-    TODO: 実験系に確認後、引数の仕様を決定
-    - 現状: 2つのtrap_idを指定する想定
+    
+    指定したイオンが右端になる位置でチェーンを分割する。
+    右側のチェーンには新しいzone_idが付与される。
+    
+    ion_id=None の場合、全イオンを右側のゾーンへ渡す（左側は空になる）。
+    
+    例1: Zone0: [A, B, C, D] で Split(ion_id=B, right_zone_id=3)
+        → Zone0: [A, B], Zone3: [C, D]
+    
+    例2: Zone0: [A, B, C] で Split(ion_id=None, right_zone_id=1)
+        → Zone0: [], Zone1: [A, B, C]
     """
-    trap_ids: List[int]  # 分割後の2つのtrap
+    ion_id: Optional[int]   # このイオンが右端になる位置で分割。Noneなら全部右へ
+    right_zone_id: int      # 右側のチェーンに付与するzone_id
     type: str = "SPLIT"
 
 
 @dataclass
 class MergeOp(Operation):
     """
-    マージ操作: 2つのイオンチェーンを合体
-    TODO: 実験系に確認後、引数の仕様を決定
-    - 確認事項: 隣接trap限定か？合体後の順序は？
+    マージ操作: 2つの隣接イオンチェーンを結合
+    
+    左側のゾーンのIDが継承される。
+    
+    例: Zone0: [A, B], Zone1: [C, D] で Merge(zone_left=0, zone_right=1)
+        → Zone0: [A, B, C, D]  (Zone1は消滅)
     """
-    trap_ids: List[int]  # 合体する2つのtrap
+    zone_left: int       # 左側のゾーン（このIDが継承される）
+    zone_right: int      # 右側のゾーン（結合後消滅）
     type: str = "MERGE"
 
 

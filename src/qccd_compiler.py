@@ -18,10 +18,10 @@ QCCD Compiler: DAG → Executable QCCD Native Circuit
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Set, Optional, Tuple, Tuple
+from typing import List, Dict, Set, Optional, Tuple
 from ast_def import (
     Location, QubitDecl, Operation,
-    GateOp, ShuttleOp, SwapOp, MeasureOp, ResetOp, Program
+    GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp, Program
 )
 from dag_builder import DAG, DAGNode
 
@@ -238,7 +238,13 @@ class QCCDState:
         return None
     
     def move_ion(self, ion_id: int, dst_zone_id: int):
-        """イオンを移動（状態を更新）"""
+        """
+        イオンを移動（状態を更新）
+        
+        シャトル方向によって挿入位置が決まる:
+        - 右方向（src < dst）: 左端から出て、左端に入る → insert(0)
+        - 左方向（src > dst）: 右端から出て、右端に入る → append
+        """
         src_zone_id = self.locate(ion_id)
         dst_zone = self.architecture.get_zone(dst_zone_id)
         
@@ -249,7 +255,15 @@ class QCCDState:
         
         # 移動を実行
         self.zone_contents[src_zone_id].remove(ion_id)
-        self.zone_contents[dst_zone_id].append(ion_id)
+        
+        # シャトル方向によって挿入位置を決定
+        if src_zone_id < dst_zone_id:
+            # 右方向: 左端に入る
+            self.zone_contents[dst_zone_id].insert(0, ion_id)
+        else:
+            # 左方向: 右端に入る
+            self.zone_contents[dst_zone_id].append(ion_id)
+        
         self.ion_locations[ion_id] = dst_zone_id
     
     def get_ion_position_in_zone(self, ion_id: int) -> int:
@@ -297,6 +311,288 @@ class QCCDState:
         if not contents:
             return None
         return contents[0] if left else contents[-1]
+    
+    def split_chain(self, ion_id: Optional[int], new_zone_id: int, source_zone_id: Optional[int] = None):
+        """
+        イオンチェーンを分割（指定イオンが右端になる位置で）
+        
+        Args:
+            ion_id: このイオンが右端になる位置で分割。Noneなら全イオンを右側へ
+            new_zone_id: 右側のチェーンに付与するzone_id
+            source_zone_id: 分割元のゾーンID（ion_id=Noneの場合は必須）
+        """
+        if ion_id is None:
+            # 全イオンを右側へ渡す
+            if source_zone_id is None:
+                raise ValueError("source_zone_id is required when ion_id is None")
+            zone_id = source_zone_id
+            contents = self.zone_contents[zone_id]
+            
+            # 全イオンを右側へ
+            self.zone_contents[new_zone_id] = contents
+            self.zone_contents[zone_id] = []
+            
+            # ion_locationsを更新
+            for ion in contents:
+                self.ion_locations[ion] = new_zone_id
+        else:
+            zone_id = self.locate(ion_id)
+            contents = self.zone_contents[zone_id]
+            pos = contents.index(ion_id)
+            
+            # 分割位置の右側にイオンがない場合はエラー
+            if pos == len(contents) - 1:
+                raise ValueError(f"Cannot split: ion {ion_id} is already at right edge")
+            
+            # 分割
+            left_contents = contents[:pos + 1]
+            right_contents = contents[pos + 1:]
+            
+            # 状態を更新
+            self.zone_contents[zone_id] = left_contents
+            self.zone_contents[new_zone_id] = right_contents
+            
+            # ion_locationsを更新
+            for ion in right_contents:
+                self.ion_locations[ion] = new_zone_id
+    
+    def merge_chains(self, zone_left: int, zone_right: int):
+        """
+        2つのイオンチェーンを結合
+        
+        Args:
+            zone_left: 左側のゾーン（このIDが継承される）
+            zone_right: 右側のゾーン（結合後消滅）
+        """
+        left_contents = self.zone_contents[zone_left]
+        right_contents = self.zone_contents[zone_right]
+        
+        # 結合
+        merged = left_contents + right_contents
+        
+        # 状態を更新
+        self.zone_contents[zone_left] = merged
+        self.zone_contents[zone_right] = []
+        
+        # ion_locationsを更新
+        for ion in right_contents:
+            self.ion_locations[ion] = zone_left
+
+
+
+# ==========================================
+# Operation Expander
+# ==========================================
+
+class OperationExpander:
+    """
+    高レベル操作を低レベル操作に展開
+    
+    SwapOp → Split + Swap + Merge
+    ShuttleOp → Merge + Shuttle + Split
+    """
+    
+    def __init__(self):
+        self._temp_zone_counter = 0
+    
+    def _allocate_temp_zone(self) -> int:
+        """一時ゾーンIDを割り当て（負の数を使用）"""
+        self._temp_zone_counter += 1
+        return -self._temp_zone_counter
+    
+    def expand(
+        self, 
+        operations: List[Operation], 
+        architecture: QCCDArchitecture,
+        initial_placement: Dict[int, int]
+    ) -> List[Operation]:
+        """
+        高レベル操作を低レベル操作に展開
+        
+        Args:
+            operations: 高レベル操作のリスト
+            architecture: QCCDアーキテクチャ
+            initial_placement: 初期配置 (ion_id -> zone_id)
+        
+        Returns:
+            展開後の低レベル操作のリスト
+        """
+        # 状態を初期化
+        state = QCCDState(architecture)
+        for ion_id, zone_id in initial_placement.items():
+            state.place_ion(ion_id, zone_id)
+        
+        self._temp_zone_counter = 0
+        expanded: List[Operation] = []
+        
+        for op in operations:
+            if isinstance(op, SwapOp):
+                expanded.extend(self._expand_swap(op, state))
+            elif isinstance(op, ShuttleOp):
+                expanded.extend(self._expand_shuttle(op, state))
+            else:
+                expanded.append(op)
+        
+        return expanded
+    
+    def _expand_swap(self, swap_op: SwapOp, state: QCCDState) -> List[Operation]:
+        """
+        SwapOpを展開
+        
+        パターン:
+        1. 2イオンのみ: Swap のみ
+        2. 左端ペア: Split + Swap + Merge (1回)
+        3. 右端ペア: Split + Swap + Merge (1回)
+        4. 中間ペア: Split + Split + Swap + Merge + Merge (2回)
+        """
+        ion_a, ion_b = swap_op.targets
+        zone_id = state.locate(ion_a)
+        contents = state.zone_contents[zone_id]
+        
+        pos_a = contents.index(ion_a)
+        pos_b = contents.index(ion_b)
+        
+        # 左右を確定
+        left_pos, right_pos = min(pos_a, pos_b), max(pos_a, pos_b)
+        left_ion = contents[left_pos]
+        right_ion = contents[right_pos]
+        
+        ops: List[Operation] = []
+        
+        if len(contents) == 2:
+            # パターン1: 2イオンのみ
+            ops.append(SwapOp(targets=[left_ion, right_ion]))
+            state.swap_ions(left_ion, right_ion)
+            
+        elif left_pos == 0:
+            # パターン2: 左端ペア [A, B, C, D] の Swap(A, B)
+            # Split(B) → [A, B] | [C, D]
+            temp = self._allocate_temp_zone()
+            ops.append(SplitOp(ion_id=right_ion, right_zone_id=temp))
+            state.split_chain(right_ion, temp)
+            
+            # Swap
+            ops.append(SwapOp(targets=[left_ion, right_ion]))
+            state.swap_ions(left_ion, right_ion)
+            
+            # Merge
+            ops.append(MergeOp(zone_left=zone_id, zone_right=temp))
+            state.merge_chains(zone_id, temp)
+            
+        elif right_pos == len(contents) - 1:
+            # パターン3: 右端ペア [A, B, C, D] の Swap(C, D)
+            # Split(left_pos - 1のイオン) → [A, B] | [C, D]
+            split_ion = contents[left_pos - 1]
+            temp = self._allocate_temp_zone()
+            ops.append(SplitOp(ion_id=split_ion, right_zone_id=temp))
+            state.split_chain(split_ion, temp)
+            
+            # Swap (tempゾーン内で)
+            ops.append(SwapOp(targets=[left_ion, right_ion]))
+            state.swap_ions(left_ion, right_ion)
+            
+            # Merge
+            ops.append(MergeOp(zone_left=zone_id, zone_right=temp))
+            state.merge_chains(zone_id, temp)
+            
+        else:
+            # パターン4: 中間ペア [A, B, C, D] の Swap(B, C)
+            # Split(left_pos - 1のイオン) → [A] | [B, C, D]
+            split_ion1 = contents[left_pos - 1]
+            temp1 = self._allocate_temp_zone()
+            ops.append(SplitOp(ion_id=split_ion1, right_zone_id=temp1))
+            state.split_chain(split_ion1, temp1)
+            
+            # Split(right_ion) → [A] | [B, C] | [D]
+            temp2 = self._allocate_temp_zone()
+            ops.append(SplitOp(ion_id=right_ion, right_zone_id=temp2))
+            state.split_chain(right_ion, temp2)
+            
+            # Swap (temp1ゾーン内で)
+            ops.append(SwapOp(targets=[left_ion, right_ion]))
+            state.swap_ions(left_ion, right_ion)
+            
+            # Merge (temp1 + temp2)
+            ops.append(MergeOp(zone_left=temp1, zone_right=temp2))
+            state.merge_chains(temp1, temp2)
+            
+            # Merge (zone_id + temp1)
+            ops.append(MergeOp(zone_left=zone_id, zone_right=temp1))
+            state.merge_chains(zone_id, temp1)
+        
+        return ops
+    
+    def _expand_shuttle(self, shuttle_op: ShuttleOp, state: QCCDState) -> List[Operation]:
+        """
+        ShuttleOpを展開
+        
+        展開後の操作: Merge → Shuttle → Split
+        
+        物理的な動作:
+        1. 2つのゾーンのチェーンを結合 (Merge)
+        2. イオンがチェーン内で移動 (Shuttle)
+        3. チェーンを元の境界で分割 (Split)
+        
+        ただし、シャトル対象イオンは dst_zone 側に属するように分割する
+        """
+        ion_id = shuttle_op.target
+        src_zone = state.locate(ion_id)
+        dst_zone = shuttle_op.dst.trap
+        
+        ops: List[Operation] = []
+        
+        src_contents = list(state.zone_contents[src_zone])  # コピー
+        dst_contents = list(state.zone_contents[dst_zone])  # コピー
+        
+        # 単純ケース: src_zoneに1イオンかつdst_zoneが空
+        if len(src_contents) == 1 and len(dst_contents) == 0:
+            ops.append(ShuttleOp(target=ion_id, dst=shuttle_op.dst))
+            state.move_ion(ion_id, dst_zone)
+            return ops
+        
+        # Merge (src_zone と dst_zone を結合)
+        if src_zone < dst_zone:
+            # 右方向: src が左、dst が右
+            ops.append(MergeOp(zone_left=src_zone, zone_right=dst_zone))
+            state.merge_chains(src_zone, dst_zone)
+            merged_zone = src_zone
+        else:
+            # 左方向: dst が左、src が右
+            ops.append(MergeOp(zone_left=dst_zone, zone_right=src_zone))
+            state.merge_chains(dst_zone, src_zone)
+            merged_zone = dst_zone
+        
+        # Shuttle (物理命令として出力)
+        ops.append(ShuttleOp(target=ion_id, dst=shuttle_op.dst))
+        
+        # Split (ion_idがdst_zoneに属するように分割)
+        contents = state.zone_contents[merged_zone]
+        ion_pos = contents.index(ion_id)
+        
+        if src_zone < dst_zone:
+            # 右方向: ion_idの左隣で分割（ion_id以降がdst_zoneへ）
+            if ion_pos > 0:
+                split_ion = contents[ion_pos - 1]
+                ops.append(SplitOp(ion_id=split_ion, right_zone_id=dst_zone))
+                state.split_chain(split_ion, dst_zone)
+            else:
+                # ion_idが左端: 全てのイオンがdst_zoneへ (ion_id=None)
+                ops.append(SplitOp(ion_id=None, right_zone_id=dst_zone))
+                state.split_chain(None, dst_zone, source_zone_id=merged_zone)
+        else:
+            # 左方向: ion_idで分割（ion_id以下がdst_zoneに残る）
+            if ion_pos < len(contents) - 1:
+                ops.append(SplitOp(ion_id=ion_id, right_zone_id=src_zone))
+                state.split_chain(ion_id, src_zone)
+            else:
+                # ion_idが右端: 全てのイオンがdst_zoneに残る
+                # src_zoneは空になる（既にmerged_zone = dst_zoneなので何もしなくてよい）
+                # Split不要だが、空のsrc_zoneを復元する意味でSplitを出力
+                # ただしion_id=Noneは「全部右へ」なので、ここでは使えない
+                # この場合、実際にはSplit操作は不要（src_zoneが空のまま）
+                pass
+        
+        return ops
 
 
 # ==========================================
@@ -375,7 +671,39 @@ class QCCDCompiler:
                     elif isinstance(op, SwapOp):
                         stats["swaps"] += 1
         
-        return CompileResult(operations=operations, stats=stats)
+        # 高レベル操作を低レベル操作に展開
+        expander = OperationExpander()
+        expanded_operations = expander.expand(operations, self.architecture, initial_placement)
+        
+        # 展開後の統計を再計算
+        expanded_stats = self._calculate_stats(expanded_operations)
+        expanded_stats["iterations"] = stats["iterations"]
+        
+        return CompileResult(operations=expanded_operations, stats=expanded_stats)
+    
+    def _calculate_stats(self, operations: List[Operation]) -> Dict[str, int]:
+        """展開後の操作列から統計情報を計算"""
+        stats = {
+            "gates": 0,
+            "shuttles": 0,
+            "swaps": 0,
+            "splits": 0,
+            "merges": 0,
+        }
+        for op in operations:
+            if isinstance(op, GateOp):
+                stats["gates"] += 1
+            elif isinstance(op, (ResetOp, MeasureOp)):
+                stats["gates"] += 1  # ゲートとしてカウント
+            elif isinstance(op, ShuttleOp):
+                stats["shuttles"] += 1
+            elif isinstance(op, SwapOp):
+                stats["swaps"] += 1
+            elif isinstance(op, SplitOp):
+                stats["splits"] += 1
+            elif isinstance(op, MergeOp):
+                stats["merges"] += 1
+        return stats
     
     def _find_executable_gate(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> Optional[DAGNode]:
         """
@@ -755,3 +1083,79 @@ if __name__ == "__main__":
     print(f"\nArchitecture: {arch5}")
     print(f"Adjacent to zone 1: {arch5.get_adjacent_zones(1)}")
     print(f"Adjacent to zone 2: {arch5.get_adjacent_zones(2)}")
+    
+    # ========================================
+    # Test 6: Operation Expansion
+    # ========================================
+    print("\n" + "=" * 60)
+    print("Test 6: Operation Expansion")
+    print("=" * 60)
+    
+    # Swap展開テスト
+    print("\n--- Swap Expansion Tests ---")
+    
+    arch6 = QCCDArchitecture.simple_mlm(liz_capacity=10)
+    expander = OperationExpander()
+    
+    # テスト6-1: 2イオンのみ
+    print("\n[6-1] 2 ions only: Swap(A, B)")
+    initial_2ion = {0: 0, 1: 0}  # Zone0: [0, 1]
+    ops_2ion = [SwapOp(targets=[0, 1])]
+    expanded_2ion = expander.expand(ops_2ion, arch6, initial_2ion)
+    print(f"  Input:  {ops_2ion}")
+    print(f"  Output: {expanded_2ion}")
+    
+    # テスト6-2: 左端ペア
+    print("\n[6-2] Left edge pair: [A, B, C, D] Swap(A, B)")
+    initial_left = {0: 0, 1: 0, 2: 0, 3: 0}  # Zone0: [0, 1, 2, 3]
+    ops_left = [SwapOp(targets=[0, 1])]
+    expander = OperationExpander()  # リセット
+    expanded_left = expander.expand(ops_left, arch6, initial_left)
+    print(f"  Input:  {ops_left}")
+    print(f"  Output:")
+    for op in expanded_left:
+        print(f"    {op}")
+    
+    # テスト6-3: 右端ペア
+    print("\n[6-3] Right edge pair: [A, B, C, D] Swap(C, D)")
+    ops_right = [SwapOp(targets=[2, 3])]
+    expander = OperationExpander()  # リセット
+    expanded_right = expander.expand(ops_right, arch6, initial_left)
+    print(f"  Input:  {ops_right}")
+    print(f"  Output:")
+    for op in expanded_right:
+        print(f"    {op}")
+    
+    # テスト6-4: 中間ペア
+    print("\n[6-4] Middle pair: [A, B, C, D] Swap(B, C)")
+    ops_mid = [SwapOp(targets=[1, 2])]
+    expander = OperationExpander()  # リセット
+    expanded_mid = expander.expand(ops_mid, arch6, initial_left)
+    print(f"  Input:  {ops_mid}")
+    print(f"  Output:")
+    for op in expanded_mid:
+        print(f"    {op}")
+    
+    # Shuttle展開テスト
+    print("\n--- Shuttle Expansion Tests ---")
+    
+    # テスト6-5: 右方向シャトル
+    print("\n[6-5] Shuttle right: Zone0[A,B,C] -> Zone1, move C")
+    initial_shuttle = {0: 0, 1: 0, 2: 0, 3: 1, 4: 1}  # Zone0: [0,1,2], Zone1: [3,4]
+    ops_shuttle_r = [ShuttleOp(target=2, dst=Location(trap=1, site=0))]
+    expander = OperationExpander()  # リセット
+    expanded_shuttle_r = expander.expand(ops_shuttle_r, arch6, initial_shuttle)
+    print(f"  Input:  {ops_shuttle_r}")
+    print(f"  Output:")
+    for op in expanded_shuttle_r:
+        print(f"    {op}")
+    
+    # テスト6-6: 左方向シャトル
+    print("\n[6-6] Shuttle left: Zone1[X,Y] -> Zone0, move X")
+    ops_shuttle_l = [ShuttleOp(target=3, dst=Location(trap=0, site=0))]
+    expander = OperationExpander()  # リセット
+    expanded_shuttle_l = expander.expand(ops_shuttle_l, arch6, initial_shuttle)
+    print(f"  Input:  {ops_shuttle_l}")
+    print(f"  Output:")
+    for op in expanded_shuttle_l:
+        print(f"    {op}")

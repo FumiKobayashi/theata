@@ -39,10 +39,13 @@ qccd_grammar = """
     // SWAP: 2つのion_idのみ (同一trap内にいることはsemantic analysisで検証)
     swap_op: "SWAP" ion_id ion_id
     
-    // TODO: SPLIT/MERGE - 実験系に確認後、仕様を確定
-    // 現状: 2つのtrap_idを指定
-    split_op: "SPLIT" trap_id trap_id
-    merge_op: "MERGE" trap_id trap_id
+    // SPLIT: 指定イオンが右端になる位置で分割、右側に新しいzone_idを付与
+    split_op: "SPLIT" ion_id "->" zone_id
+    
+    // MERGE: 左と右のゾーンを結合、左のIDを継承
+    merge_op: "MERGE" zone_id zone_id
+    
+    zone_id: INT
 
     // その他の操作
     measure_op:  "MEASURE" ion_id+
@@ -111,14 +114,15 @@ class QCCDASTTransformer(Transformer):
         return SwapOp(targets=[items[0], items[1]])
 
     def split_op(self, items):
-        # TODO: 実験系に確認後、仕様を確定
-        # SPLIT trap_id trap_id
-        return SplitOp(trap_ids=[items[0], items[1]])
+        # SPLIT ion_id -> zone_id
+        return SplitOp(ion_id=items[0], right_zone_id=items[1])
 
     def merge_op(self, items):
-        # TODO: 実験系に確認後、仕様を確定
-        # MERGE trap_id trap_id
-        return MergeOp(trap_ids=[items[0], items[1]])
+        # MERGE zone_left zone_right
+        return MergeOp(zone_left=items[0], zone_right=items[1])
+    
+    def zone_id(self, items):
+        return items[0]
 
     # --- その他の操作 ---
     def measure_op(self, items):
@@ -192,9 +196,9 @@ if __name__ == "__main__":
     # Swap (新文法: 位置指定なし)
     SWAP 0 1
     
-    # TODO: SPLIT/MERGE - 仕様確認後に修正
-    # MERGE 1 2
-    # SPLIT 1 2
+    # Split/Merge (新仕様)
+    SPLIT 1 -> 3
+    MERGE 0 1
     
     # Measurement
     MEASURE 0 1
