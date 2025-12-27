@@ -195,6 +195,32 @@ class QCCDState:
         # 全イオンが同じLIZにいるか確認
         return all(self.locate(ion_id) == first_zone for ion_id in gate.targets)
     
+    def can_execute_reset_measure(self, op) -> bool:
+        """
+        RESET/MEASUREが実行可能か
+        
+        条件:
+        1. ターゲットが全て同じLIZにいる
+        2. そのLIZにはターゲット以外のイオンがいない
+           (RESET/MEASUREはLIZ上の全イオンに影響するため)
+        """
+        targets = op.targets
+        if not targets:
+            return True
+        
+        first_zone = self.locate(targets[0])
+        if not self.architecture.is_liz(first_zone):
+            return False
+        
+        # 全ターゲットが同じLIZにいるか
+        if not all(self.locate(t) == first_zone for t in targets):
+            return False
+        
+        # LIZ上にターゲット以外のイオンがいないか
+        liz_contents = set(self.zone_contents[first_zone])
+        target_set = set(targets)
+        return liz_contents == target_set
+    
     def get_liz_with_space(self) -> Optional[int]:
         """空きのあるLIZを探す"""
         for liz in self.architecture.get_liz_zones():
@@ -716,15 +742,10 @@ class QCCDCompiler:
             if isinstance(node.operation, GateOp):
                 if state.can_execute(node.operation):
                     return node
-            elif isinstance(node.operation, ResetOp):
-                # RESETもLIZで実行が必要と仮定
-                # 全ターゲットが同じLIZにいるか確認
-                targets = node.operation.targets
-                if targets:
-                    first_zone = state.locate(targets[0])
-                    if self.architecture.is_liz(first_zone):
-                        if all(state.locate(t) == first_zone for t in targets):
-                            return node
+            elif isinstance(node.operation, (ResetOp, MeasureOp)):
+                # RESET/MEASUREはLIZで実行、かつLIZにターゲット以外がいないこと
+                if state.can_execute_reset_measure(node.operation):
+                    return node
         return None
     
     def _generate_shuttle_ops(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> List[Tuple[Operation, str]]:
@@ -738,16 +759,41 @@ class QCCDCompiler:
         - Front Layerの最小IDノードに必要なイオンをLIZへ移動
         - LIZが満杯なら、Front Layerで不要なイオンを退避
         - SHUTTLE前に必要ならSWAPを挿入
+        - RESET/MEASUREの場合、LIZ上のターゲット以外を退避
         """
         # 最小IDのゲートを対象にする
         for node_id in sorted(front_layer):
             node = dag.nodes[node_id]
-            if isinstance(node.operation, (GateOp, ResetOp)):
+            if isinstance(node.operation, (GateOp, ResetOp, MeasureOp)):
                 targets = node.operation.targets
                 movement_ops: List[Tuple[Operation, str]] = []
                 
+                is_reset_measure = isinstance(node.operation, (ResetOp, MeasureOp))
+                
                 # LIZにいないイオンを特定
                 ions_to_bring = [ion_id for ion_id in targets if not state.is_in_liz(ion_id)]
+                
+                # RESET/MEASUREの場合: LIZ上のターゲット以外のイオンを退避
+                if is_reset_measure and not ions_to_bring:
+                    # ターゲットは既にLIZにいる
+                    # LIZ上にターゲット以外のイオンがいるか確認
+                    target_liz_id = state.locate(targets[0])
+                    liz_contents = set(state.zone_contents[target_liz_id])
+                    target_set = set(targets)
+                    non_targets_in_liz = liz_contents - target_set
+                    
+                    if non_targets_in_liz:
+                        # ターゲット以外のイオンを退避
+                        eviction_ops = self._generate_eviction_ops_for_reset_measure(
+                            state, target_liz_id, non_targets_in_liz
+                        )
+                        movement_ops.extend(eviction_ops)
+                        
+                        if movement_ops:
+                            return movement_ops
+                    
+                    # ターゲット以外がいない場合は何もしない
+                    continue
                 
                 if not ions_to_bring:
                     continue
@@ -762,6 +808,21 @@ class QCCDCompiler:
                 # 必要な空きスペース
                 needed_space = len(ions_to_bring)
                 current_space = state.get_zone_free_space(target_liz_id)
+                
+                # RESET/MEASUREの場合、LIZ上の全イオンを退避（ターゲットを除く）
+                if is_reset_measure:
+                    liz_contents = set(state.zone_contents[target_liz_id])
+                    target_set = set(targets)
+                    non_targets_in_liz = liz_contents - target_set
+                    
+                    if non_targets_in_liz:
+                        # ターゲット以外の全イオンを退避
+                        eviction_ops = self._generate_eviction_ops_for_reset_measure(
+                            state, target_liz_id, non_targets_in_liz
+                        )
+                        movement_ops.extend(eviction_ops)
+                        # 空きスペースを再計算
+                        current_space = state.get_zone_free_space(target_liz_id)
                 
                 # LIZが満杯または空きが足りない場合、退避が必要
                 if current_space < needed_space:
@@ -796,6 +857,47 @@ class QCCDCompiler:
                     return movement_ops
         
         return []
+    
+    def _generate_eviction_ops_for_reset_measure(
+        self, 
+        state: QCCDState, 
+        liz_id: int, 
+        ions_to_evict: Set[int]
+    ) -> List[Tuple[Operation, str]]:
+        """
+        RESET/MEASURE実行前にLIZからターゲット以外のイオンを退避
+        
+        Args:
+            state: 現在の状態
+            liz_id: 退避元のLIZ
+            ions_to_evict: 退避するイオンの集合
+        """
+        eviction_ops: List[Tuple[Operation, str]] = []
+        
+        # 退避先を探す
+        evict_dst = state.find_eviction_destination(liz_id)
+        if evict_dst is None:
+            raise RuntimeError(f"No eviction destination found for LIZ {liz_id}")
+        
+        for ion_id in ions_to_evict:
+            # SHUTTLE前に必要ならSWAPを挿入
+            swap_ops = self._generate_swap_ops_for_shuttle(
+                state, ion_id, liz_id, evict_dst
+            )
+            eviction_ops.extend(swap_ops)
+            # SWAP操作を状態に反映
+            for op, _ in swap_ops:
+                state.swap_ions(op.targets[0], op.targets[1])
+            
+            # SHUTTLE操作を追加
+            eviction_ops.append((
+                ShuttleOp(target=ion_id, dst=Location(trap=evict_dst, site=0)),
+                "out"
+            ))
+            # 状態を更新
+            state.move_ion(ion_id, evict_dst)
+        
+        return eviction_ops
     
     def _generate_eviction_ops(
         self, 
