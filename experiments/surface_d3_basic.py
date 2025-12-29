@@ -13,7 +13,9 @@ Surface-17 Syndrome Extraction Circuit - Basic Compilation Experiment
 """
 
 import sys
+import json
 from pathlib import Path
+from datetime import datetime
 
 # srcディレクトリをパスに追加
 # プロジェクトルート/experiments/surface17_basic.py から実行する想定
@@ -153,10 +155,91 @@ MEASURE 16
 """
 
 
+# ==========================================
+# 出力機能
+# ==========================================
+
+def operation_to_dict(op) -> dict:
+    """
+    Operation を辞書に変換（JSON出力用）
+    
+    依存モジュールなしで動作するよう、型名の文字列判定を使用
+    """
+    type_name = type(op).__name__
+    result = {"type": type_name}
+    
+    if type_name == "GateOp":
+        result["gate_type"] = op.type  # "MS" or "R"
+        result["targets"] = op.targets
+        result["params"] = op.params
+    elif type_name == "ShuttleOp":
+        result["target"] = op.target
+        result["dst"] = {"trap": op.dst.trap, "site": op.dst.site}
+    elif type_name == "SwapOp":
+        result["targets"] = op.targets
+    elif type_name == "SplitOp":
+        result["ion_id"] = op.ion_id
+        result["right_zone_id"] = op.right_zone_id
+    elif type_name == "MergeOp":
+        result["zone_left"] = op.zone_left
+        result["zone_right"] = op.zone_right
+    elif type_name == "ResetOp":
+        result["targets"] = op.targets
+    elif type_name == "MeasureOp":
+        result["targets"] = op.targets
+    else:
+        # フォールバック: str表現を使用
+        result["repr"] = str(op)
+    
+    return result
+
+
+def save_operations_json(
+    result,
+    estimation,
+    filepath: str,
+    metadata: dict = None
+):
+    """
+    コンパイル結果をJSONファイルに保存
+    
+    Args:
+        result: CompileResult オブジェクト
+        estimation: Estimator の結果
+        filepath: 保存先パス
+        metadata: 追加のメタデータ（オプション）
+    """
+    output = {
+        "metadata": {
+            "generated_at": datetime.now().isoformat(),
+            "total_operations": len(result.operations),
+            "stats": result.stats,
+            "time_estimation": {
+                "total_time_us": estimation.total_time,
+                "total_time_ms": estimation.total_time / 1000,
+                "breakdown": estimation.breakdown if hasattr(estimation, 'breakdown') else {}
+            }
+        },
+        "operations": [operation_to_dict(op) for op in result.operations]
+    }
+    
+    if metadata:
+        output["metadata"].update(metadata)
+    
+    # ディレクトリがなければ作成
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(output, f, indent=2, ensure_ascii=False)
+    
+    print(f"\n[Output] Saved to: {filepath}")
+
+
 def run_experiment(
     liz_capacity: int = 4,
     memory_capacity: int = 30,
-    placement_name: str = "default"
+    placement_name: str = "default",
+    output_dir: str = None
 ):
     """
     Surface-17のコンパイル実験を実行
@@ -165,6 +248,7 @@ def run_experiment(
         liz_capacity: LIZの容量
         memory_capacity: Memoryゾーンの容量
         placement_name: 初期配置の名前（"default", "interleaved"など）
+        output_dir: 結果を保存するディレクトリ（Noneなら保存しない）
     """
     print("=" * 70)
     print("Surface-17 Syndrome Extraction - Compilation Experiment")
@@ -231,16 +315,40 @@ def run_experiment(
     print(f"  Expansion ratio: {len(result.operations) / len(program.instructions):.1f}x")
     print(f"  Total time: {estimation.total_time:.2f} μs = {estimation.total_time/1000:.2f} ms")
     
+    # ファイル出力
+    if output_dir:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"surface17_liz{liz_capacity}_{placement_name}_{timestamp}.json"
+        filepath = Path(output_dir) / filename
+        
+        save_operations_json(
+            result=result,
+            estimation=estimation,
+            filepath=str(filepath),
+            metadata={
+                "experiment": "surface17_syndrome_extraction",
+                "liz_capacity": liz_capacity,
+                "memory_capacity": memory_capacity,
+                "placement": placement_name,
+                "input_operations": len(program.instructions),
+                "expansion_ratio": len(result.operations) / len(program.instructions)
+            }
+        )
+    
     return result, estimation
 
 
 def main():
     """メイン関数"""
+    # 出力ディレクトリ（experiments/ と同階層の result/）
+    output_dir = Path(__file__).parent.parent / "results"
+    
     # 基本実験
     result, estimation = run_experiment(
         liz_capacity=4,
         memory_capacity=30,
-        placement_name="default"
+        placement_name="default",
+        output_dir=str(output_dir)
     )
     
     print("\n" + "=" * 70)
