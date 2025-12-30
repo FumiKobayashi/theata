@@ -25,36 +25,39 @@ class TimeParameters:
     実際のハードウェアに合わせて調整可能。
     """
     # ゲート操作
-    ms_gate: float = 200.0      # Mølmer-Sørensen gate
-    r_gate: float = 10.0        # Single-qubit rotation
+    ms_gate: float = 59.0      # Mølmer-Sørensen gate
+    r_gate: float = 4.0        # Single-qubit rotation
     
     # 測定・初期化
-    reset: float = 100.0        # State preparation
-    measure: float = 100.0      # Measurement
+    reset: float = 41.0        # State preparation (more duration due to cooling?)
+    measure: float = 1000.0      # Measurement
     
     # シャトリング操作
     split: float = 100.0        # Chain split
     merge: float = 100.0        # Chain merge
     swap: float = 20.0          # 2-ion trap内でのswap
     
-    # Shuttle: 距離依存
-    # 速度ベースで計算: time = distance / speed
-    shuttle_speed: float = 9.0  # m/s
-    zone_spacing: float = 100.0  # μm (ゾーン間の距離)
+    # Shuttle: dstトラップ内のイオン数に依存
+    # 速度: 9.0 μm/μs
+    shuttle_speed: float = 9.0  # μm/μs
+    shuttle_base_distance: float = 1000.0  # μm (基本距離)
+    shuttle_ion_factor: float = 5.0  # μm per ion
     
-    def shuttle_time(self, zone_distance: int = 1) -> float:
+    def shuttle_time(self, dst_chain_length: int = 0) -> float:
         """
         シャトル時間を計算
         
+        移動距離 = 1000 - 5n [μm] (nはdstトラップ内のイオン数)
+        時間 = 距離 / 速度
+        
         Args:
-            zone_distance: 移動するゾーン数（隣接なら1）
+            dst_chain_length: dstトラップ内のイオン数
         
         Returns:
             時間（マイクロ秒）
         """
-        distance_m = self.zone_spacing * zone_distance * 1e-6  # μm → m
-        time_s = distance_m / self.shuttle_speed
-        return time_s * 1e6  # s → μs
+        distance_um = self.shuttle_base_distance - self.shuttle_ion_factor * dst_chain_length
+        return distance_um / self.shuttle_speed
 
 
 @dataclass
@@ -157,9 +160,8 @@ class Estimator:
             return ("Swap", self.params.swap)
         
         elif isinstance(op, ShuttleOp):
-            # 距離は常に1ゾーンと仮定（隣接ゾーン間のみ）
-            # より正確にするにはアーキテクチャ情報が必要
-            return ("Shuttle", self.params.shuttle_time(zone_distance=1))
+            # dst_chain_lengthを使って時間を計算
+            return ("Shuttle", self.params.shuttle_time(dst_chain_length=op.dst_chain_length))
         
         elif isinstance(op, BarrierOp):
             # バリアは同期点で、実行時間なし

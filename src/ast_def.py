@@ -54,9 +54,14 @@ class GateOp(Operation):
 
 @dataclass
 class ShuttleOp(Operation):
-    """シャトル操作: イオンを別の位置へ移動"""
+    """シャトル操作: イオンを別の位置へ移動
+    
+    dst_chain_length: Shuttle直前のdstトラップ内のイオン数
+                     （Shuttle時間の計算に使用）
+    """
     target: int         # 移動するion_id
     dst: Location       # 移動先 (srcは状態から導出)
+    dst_chain_length: int = 0  # dstトラップのイオン数（コンパイラが設定）
     type: str = "SHUTTLE"
 
 
@@ -73,18 +78,22 @@ class SplitOp(Operation):
     スプリット操作: イオンチェーンを分割
     
     指定したイオンが右端になる位置でチェーンを分割する。
-    右側のチェーンには新しいzone_idが付与される。
+    
+    inheritパラメータでどちらのゾーンが元のIDを継承するか指定:
+    - "left": 左側が元のzone_id、右側がright_zone_id（デフォルト）
+    - "right": 右側が元のzone_id、左側がright_zone_id
     
     ion_id=None の場合、全イオンを右側のゾーンへ渡す（左側は空になる）。
     
-    例1: Zone0: [A, B, C, D] で Split(ion_id=B, right_zone_id=3)
-        → Zone0: [A, B], Zone3: [C, D]
+    例1: Zone0: [A, B, C, D] で Split(ion_id=B, right_zone_id=3, inherit="left")
+        → Zone0: [A, B], Zone3: [C, D]  （左が元ID）
     
-    例2: Zone0: [A, B, C] で Split(ion_id=None, right_zone_id=1)
-        → Zone0: [], Zone1: [A, B, C]
+    例2: Zone0: [A, B, C, D] で Split(ion_id=B, right_zone_id=3, inherit="right")
+        → Zone3: [A, B], Zone0: [C, D]  （右が元ID）
     """
     ion_id: Optional[int]   # このイオンが右端になる位置で分割。Noneなら全部右へ
-    right_zone_id: int      # 右側のチェーンに付与するzone_id
+    right_zone_id: int      # 新しく付与するzone_id
+    inherit: str = "left"   # "left" or "right" - どちらが元のIDを継承するか
     type: str = "SPLIT"
 
 
@@ -93,13 +102,19 @@ class MergeOp(Operation):
     """
     マージ操作: 2つの隣接イオンチェーンを結合
     
-    左側のゾーンのIDが継承される。
+    inheritパラメータでどちらのゾーンIDを継承するか指定:
+    - "left": 左側のゾーンIDが継承される（デフォルト）
+    - "right": 右側のゾーンIDが継承される
     
-    例: Zone0: [A, B], Zone1: [C, D] で Merge(zone_left=0, zone_right=1)
+    例: Zone0: [A, B], Zone1: [C, D] で Merge(zone_left=0, zone_right=1, inherit="left")
         → Zone0: [A, B, C, D]  (Zone1は消滅)
+    
+    例: Zone0: [A, B], Zone1: [C, D] で Merge(zone_left=0, zone_right=1, inherit="right")
+        → Zone1: [A, B, C, D]  (Zone0は消滅)
     """
-    zone_left: int       # 左側のゾーン（このIDが継承される）
-    zone_right: int      # 右側のゾーン（結合後消滅）
+    zone_left: int       # 左側のゾーン
+    zone_right: int      # 右側のゾーン
+    inherit: str = "left"  # "left" or "right" - どちらのIDを継承するか
     type: str = "MERGE"
 
 
