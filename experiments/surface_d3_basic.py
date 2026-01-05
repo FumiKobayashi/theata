@@ -24,7 +24,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 from qccd_parser import parse
 from dag_builder import DAGBuilder
-from qccd_compiler import QCCDArchitecture, QCCDCompiler
+from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from estimator import Estimator
 
 
@@ -363,6 +363,7 @@ def run_experiment(
     liz_capacity: int = 4,
     memory_capacity: int = 30,
     placement_name: str = "default",
+    config: CompilerConfig = None,
     output_dir: str = None
 ):
     """
@@ -372,10 +373,14 @@ def run_experiment(
         liz_capacity: LIZの容量
         memory_capacity: Memoryゾーンの容量
         placement_name: 初期配置の名前（"default", "interleaved"など）
+        config: コンパイラ設定（Noneならbaseline）
         output_dir: 結果を保存するディレクトリ（Noneなら保存しない）
     """
+    config = config or CompilerConfig.baseline()
+    
     print("=" * 70)
     print("Surface-17 Syndrome Extraction - Compilation Experiment")
+    print(f"Config: {config}")
     print("=" * 70)
     
     # パース
@@ -416,7 +421,7 @@ def run_experiment(
     
     # コンパイル
     print(f"\n[Compiling...]")
-    compiler = QCCDCompiler(arch)
+    compiler = QCCDCompiler(arch, config=config)
     result = compiler.compile(dag, initial)
     
     print(f"\n[Compilation Result]")
@@ -442,7 +447,9 @@ def run_experiment(
     # ファイル出力
     if output_dir:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"surface17_liz{liz_capacity}_{placement_name}_{timestamp}.json"
+        # ファイル名にconfig情報を含める
+        config_tag = f"gate-{config.gate_selection}"
+        filename = f"surface17_liz{liz_capacity}_{config_tag}_{timestamp}.json"
         filepath = Path(output_dir) / filename
         
         save_operations_json(
@@ -451,6 +458,7 @@ def run_experiment(
             filepath=str(filepath),
             metadata={
                 "experiment": "surface17_syndrome_extraction",
+                "config": config.to_dict(),  # ★ config を含める
                 "liz_capacity": liz_capacity,
                 "memory_capacity": memory_capacity,
                 "placement": placement_name,

@@ -17,13 +17,87 @@ QCCD Compiler: DAG → Executable QCCD Native Circuit
   4. 全ゲートが実行されるまで繰り返し
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Set, Optional, Tuple
 from ast_def import (
     Location, QubitDecl, Operation,
     GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp, Program
 )
 from dag_builder import DAG, DAGNode
+
+
+# ==========================================
+# Compiler Configuration
+# ==========================================
+
+@dataclass
+class CompilerConfig:
+    """
+    コンパイラ最適化設定
+    
+    各フィールドは戦略名を指定。
+    アブレーションスタディのため、個別にON/OFF可能。
+    
+    新しい戦略追加時の変更箇所:
+    1. validate() 内の valid_xxx セット
+    2. 対応するディスパッチャメソッド（例: _find_executable_gate）
+    3. この docstring
+    
+    Attributes:
+        gate_selection: ゲート選択戦略
+            - "min_id": Front Layerから最小IDを選択（baseline）
+            - "locality_aware": LIZにいるイオンを使うゲートを優先
+        
+        eviction_policy: 退避イオン選択戦略
+            - "first": 候補リストの先頭から選択（baseline）
+            - "future_aware": 将来使われにくいイオンを優先
+        
+        target_liz_selection: 目標LIZ選択戦略
+            - "first_available": 空きがあるLIZ（baseline）
+            - "ion_aware": 関連イオンが多いLIZを優先
+    """
+    gate_selection: str = "min_id"
+    eviction_policy: str = "first"
+    target_liz_selection: str = "first_available"
+    
+    def to_dict(self) -> dict:
+        """JSON出力用に辞書化"""
+        return asdict(self)
+    
+    def __repr__(self) -> str:
+        return (f"CompilerConfig(gate={self.gate_selection}, "
+                f"evict={self.eviction_policy}, "
+                f"liz={self.target_liz_selection})")
+    
+    @classmethod
+    def baseline(cls) -> "CompilerConfig":
+        """全て愚直な戦略（比較のベースライン）"""
+        return cls()
+    
+    @classmethod
+    def optimized(cls) -> "CompilerConfig":
+        """全ての最適化を有効化"""
+        return cls(
+            gate_selection="locality_aware",
+            eviction_policy="future_aware",
+            target_liz_selection="ion_aware",
+        )
+    
+    # TODO: 新しい戦略を追加する際は以下も更新すること
+    #   - _find_executable_gate() 内のディスパッチ分岐
+    #   - CompilerConfig の docstring
+    def validate(self):
+        """設定値の検証"""
+        valid_gate = {"min_id", "locality_aware"}
+        valid_evict = {"first", "future_aware"}
+        valid_liz = {"first_available", "ion_aware"}
+        
+        if self.gate_selection not in valid_gate:
+            raise ValueError(f"Invalid gate_selection: {self.gate_selection}. Valid: {valid_gate}")
+        if self.eviction_policy not in valid_evict:
+            raise ValueError(f"Invalid eviction_policy: {self.eviction_policy}. Valid: {valid_evict}")
+        if self.target_liz_selection not in valid_liz:
+            raise ValueError(f"Invalid target_liz_selection: {self.target_liz_selection}. Valid: {valid_liz}")
 
 
 # ==========================================
@@ -711,22 +785,27 @@ class CompileResult:
     """コンパイル結果"""
     operations: List[Operation]  # 実行順の操作列
     stats: Dict[str, int]        # 統計情報
+    config: CompilerConfig = None  # 使用した設定（オプション）
 
 
 class QCCDCompiler:
     """
     DAG → Executable な操作列へコンパイル
     
-    アルゴリズム (プロトタイプ版 - 最適化なし):
+    アルゴリズム:
     1. Front Layerから実行可能なゲートを探す
     2. 実行可能なゲートがあれば実行
     3. なければ、必要なイオンをLIZへ移動（SHUTTLE挿入）
        - LIZが満杯なら、まず退避操作を挿入
     4. 全ゲート実行まで繰り返し
+    
+    config により各決定ポイントの戦略を切り替え可能。
     """
     
-    def __init__(self, architecture: QCCDArchitecture):
+    def __init__(self, architecture: QCCDArchitecture, config: CompilerConfig = None):
         self.architecture = architecture
+        self.config = config or CompilerConfig.baseline()
+        self.config.validate()
     
     def compile(self, dag: DAG, initial_placement: Dict[int, int]) -> CompileResult:
         """
@@ -786,7 +865,7 @@ class QCCDCompiler:
         expanded_stats = self._calculate_stats(expanded_operations)
         expanded_stats["iterations"] = stats["iterations"]
         
-        return CompileResult(operations=expanded_operations, stats=expanded_stats)
+        return CompileResult(operations=expanded_operations, stats=expanded_stats, config=self.config)
     
     def _calculate_stats(self, operations: List[Operation]) -> Dict[str, int]:
         """展開後の操作列から統計情報を計算"""
@@ -812,11 +891,32 @@ class QCCDCompiler:
                 stats["merges"] += 1
         return stats
     
+    # ==========================================
+    # Gate Selection Strategies
+    # ==========================================
+    # TODO: 新しいgate_selection戦略を追加する際は以下も更新すること
+    #   - CompilerConfig.validate() 内の valid_gate
+    #   - CompilerConfig の docstring
+    
     def _find_executable_gate(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> Optional[DAGNode]:
         """
-        Front Layerから実行可能なゲートを探す
+        Front Layerから実行可能なゲートを探す（ディスパッチャ）
         
-        プロトタイプ版: 最小IDのものを選択（決定的な動作のため）
+        config.gate_selection に応じて適切な戦略を呼び出す
+        """
+        if self.config.gate_selection == "min_id":
+            return self._find_gate_min_id(dag, front_layer, state)
+        elif self.config.gate_selection == "locality_aware":
+            return self._find_gate_locality_aware(dag, front_layer, state)
+        else:
+            raise ValueError(f"Unknown gate selection strategy: {self.config.gate_selection}")
+    
+    def _find_gate_min_id(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> Optional[DAGNode]:
+        """
+        ゲート選択戦略: min_id (baseline)
+        
+        Front Layerから最小IDの実行可能なゲートを選択。
+        決定的な動作のため、デバッグや比較に適している。
         """
         for node_id in sorted(front_layer):
             node = dag.nodes[node_id]
@@ -828,6 +928,18 @@ class QCCDCompiler:
                 if state.can_execute_reset_measure(node.operation):
                     return node
         return None
+    
+    def _find_gate_locality_aware(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> Optional[DAGNode]:
+        """
+        ゲート選択戦略: locality_aware (optimized)
+        
+        LIZにいるイオンを使うゲートを優先的に選択。
+        移動操作を減らすことを目的とする。
+        
+        TODO: 実装予定
+        """
+        # 暫定: min_idと同じ動作（後で実装）
+        return self._find_gate_min_id(dag, front_layer, state)
     
     def _generate_shuttle_ops(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> List[Tuple[Operation, str]]:
         """
