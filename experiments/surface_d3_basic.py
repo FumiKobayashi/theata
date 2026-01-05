@@ -478,7 +478,7 @@ def main():
     # 基本実験
     result, estimation = run_experiment(
         liz_capacity=4,
-        memory_capacity=30,
+        memory_capacity=20,
         placement_name="default",
         output_dir=str(output_dir)
     )

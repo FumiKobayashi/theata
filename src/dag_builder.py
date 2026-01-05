@@ -215,9 +215,8 @@ class DAGBuilder:
         # 移動操作は除外
         if isinstance(op, (ShuttleOp, SwapOp, SplitOp, MergeOp)):
             return False
-        # MEASUREは別管理
-        if isinstance(op, MeasureOp):
-            return False
+        # MEASURE, RESETも通常のゲートとしてDAGに含める
+        # TODO: バッチ処理最適化時には、複数RESET/MEASUREをまとめる処理を検討
         return True
     
     def _get_affected_ions(self, op: Operation) -> List[int]:
@@ -225,6 +224,8 @@ class DAGBuilder:
         if isinstance(op, GateOp):
             return op.targets
         elif isinstance(op, ResetOp):
+            return op.targets
+        elif isinstance(op, MeasureOp):
             return op.targets
         elif isinstance(op, BarrierOp):
             return op.targets
@@ -243,11 +244,6 @@ class DAGBuilder:
             # 移動操作は除外して別保存
             if isinstance(op, (ShuttleOp, SwapOp, SplitOp, MergeOp)):
                 self.excluded_movements.append(op)
-                continue
-            
-            # MEASUREは別管理
-            if isinstance(op, MeasureOp):
-                self.measurements.append(op)
                 continue
             
             node = self._create_node(op)
