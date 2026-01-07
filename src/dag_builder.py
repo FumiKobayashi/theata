@@ -195,28 +195,64 @@ class DAGBuilder:
     
     注意: 
     - 移動操作 (SHUTTLE, SWAP, SPLIT, MERGE) はDAGに含めない
-    - MEASUREは別管理（アーキテクチャ依存のため）
+    
+    stabilizer_parallel モード:
+    - 入力形式: スタビライザ測定が上から順に並ぶ形式を前提
+    - RESET ancilla → 新しいスタビライザ開始
+    - MEASURE ancilla → そのスタビライザ終了
+    - スタビライザ間は依存関係なし（独立したサブグラフ）
     """
     
-    def __init__(self, program: Program):
+    def __init__(self, program: Program, stabilizer_parallel: bool = False):
+        """
+        DAGBuilderを初期化
+        
+        Args:
+            program: 入力プログラム
+            stabilizer_parallel: Trueの場合、スタビライザ単位で依存関係を分離
+                                入力形式: [RESET a → gates → MEASURE a] が順に並ぶ
+        
+        Note:
+            stabilizer_parallel=Trueの場合:
+            - RESETでスタビライザ開始、MEASUREで終了
+            - 各スタビライザ内は直列、スタビライザ間は並列
+            - 前提: 入力回路がスタビライザ単位で順に記述されていること
+        """
         self.program = program
+        self.stabilizer_parallel = stabilizer_parallel
         self.dag = DAG()
         self.node_counter = 0
         
-        # 各ion_idの最後の操作を追跡
+        # 各ion_idの最後の操作を追跡（通常モード用）
         self.last_op_for_ion: Dict[int, int] = {}
+        
+        # スタビライザ並列モード用
+        # ancilla_id -> {ion_id -> last_node_id}
+        self.last_op_per_stabilizer: Dict[int, Dict[int, int]] = {}
+        self.active_stabilizer: Optional[int] = None  # 現在処理中のアンシラ
+        self.completed_stabilizers: Set[int] = set()  # 完了したアンシラ
         
         # 除外された操作を保存（後段で使用可能）
         self.excluded_movements: List[Operation] = []
         self.measurements: List[MeasureOp] = []
+    
+    def _get_ancilla_from_reset(self, op: ResetOp) -> Optional[int]:
+        """RESETからアンシラIDを取得（単一ターゲット前提）"""
+        if len(op.targets) == 1:
+            return op.targets[0]
+        return None
+    
+    def _get_ancilla_from_measure(self, op: MeasureOp) -> Optional[int]:
+        """MEASUREからアンシラIDを取得（単一ターゲット前提）"""
+        if len(op.targets) == 1:
+            return op.targets[0]
+        return None
     
     def _is_dag_operation(self, op: Operation) -> bool:
         """DAGに含める操作かどうかを判定"""
         # 移動操作は除外
         if isinstance(op, (ShuttleOp, SwapOp, SplitOp, MergeOp)):
             return False
-        # MEASURE, RESETも通常のゲートとしてDAGに含める
-        # TODO: バッチ処理最適化時には、複数RESET/MEASUREをまとめる処理を検討
         return True
     
     def _get_affected_ions(self, op: Operation) -> List[int]:
@@ -239,7 +275,14 @@ class DAGBuilder:
         return node
     
     def build(self) -> DAG:
-        """DAGを構築"""
+        """
+        DAGを構築
+        
+        stabilizer_parallel=True の場合:
+        - RESET: 新しいスタビライザ開始
+        - MEASURE: そのスタビライザ終了
+        - スタビライザ間は依存関係なし
+        """
         for op in self.program.instructions:
             # 移動操作は除外して別保存
             if isinstance(op, (ShuttleOp, SwapOp, SplitOp, MergeOp)):
@@ -253,17 +296,47 @@ class DAGBuilder:
             affected_ions = self._get_affected_ions(op)
             predecessor_ids = set()
             
-            for ion_id in affected_ions:
-                if ion_id in self.last_op_for_ion:
-                    predecessor_ids.add(self.last_op_for_ion[ion_id])
+            if self.stabilizer_parallel:
+                # === スタビライザ並列モード ===
+                
+                # RESET検出: 新しいスタビライザ開始
+                if isinstance(op, ResetOp):
+                    ancilla = self._get_ancilla_from_reset(op)
+                    if ancilla is not None:
+                        self.active_stabilizer = ancilla
+                        self.last_op_per_stabilizer[ancilla] = {}
+                
+                # アクティブなスタビライザがあれば、その中で依存関係を構築
+                if self.active_stabilizer is not None:
+                    last_op_dict = self.last_op_per_stabilizer[self.active_stabilizer]
+                    
+                    for ion_id in affected_ions:
+                        if ion_id in last_op_dict:
+                            predecessor_ids.add(last_op_dict[ion_id])
+                    
+                    # 最後の操作を更新
+                    for ion_id in affected_ions:
+                        last_op_dict[ion_id] = node.id
+                
+                # MEASURE検出: このスタビライザ終了
+                if isinstance(op, MeasureOp):
+                    ancilla = self._get_ancilla_from_measure(op)
+                    if ancilla is not None and ancilla == self.active_stabilizer:
+                        self.completed_stabilizers.add(ancilla)
+                        self.active_stabilizer = None
+            else:
+                # === 通常モード: 全体で依存関係を管理 ===
+                for ion_id in affected_ions:
+                    if ion_id in self.last_op_for_ion:
+                        predecessor_ids.add(self.last_op_for_ion[ion_id])
+                
+                # 最後の操作を更新
+                for ion_id in affected_ions:
+                    self.last_op_for_ion[ion_id] = node.id
             
             # エッジを追加
             for pred_id in predecessor_ids:
                 self.dag.add_edge(pred_id, node.id)
-            
-            # 最後の操作を更新
-            for ion_id in affected_ions:
-                self.last_op_for_ion[ion_id] = node.id
         
         self.dag.compute_entry_exit()
         return self.dag

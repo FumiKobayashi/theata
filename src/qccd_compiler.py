@@ -449,9 +449,18 @@ class QCCDState:
             contents = self.zone_contents[zone_id]
             pos = contents.index(ion_id)
             
-            # 分割位置の右側にイオンがない場合はエラー
+            # 分割位置の右側にイオンがない場合（src=1のケース）
             if pos == len(contents) - 1:
-                raise ValueError(f"Cannot split: ion {ion_id} is already at right edge")
+                if inherit == "right":
+                    # 右側（空）が元ID、左側（全体）がnew_zone_id
+                    # これにより src_zone=[], new_zone=[ion_id] となる
+                    self.zone_contents[new_zone_id] = contents.copy()
+                    self.zone_contents[zone_id] = []
+                    for ion in contents:
+                        self.ion_locations[ion] = new_zone_id
+                    return
+                else:
+                    raise ValueError(f"Cannot split: ion {ion_id} is already at right edge with inherit='left'")
             
             # 分割
             left_contents = contents[:pos + 1]
@@ -680,26 +689,32 @@ class OperationExpander:
         src_contents = list(state.zone_contents[src_zone])
         dst_contents = list(state.zone_contents[dst_zone])
         
-        # === 単純ケース: src_zoneに1イオンのみ ===
+        # === src_zoneに1イオンのみのケース ===
+        # 物理的には Split → Shuttle → Merge が必要
         if len(src_contents) == 1:
-            # Splitは不要、直接Shuttle
+            temp_zone = self._allocate_temp_zone()
+            
+            # Step 1: Split (srcからion_idを分離)
+            ops.append(SplitOp(ion_id=ion_id, right_zone_id=temp_zone, inherit="right"))
+            state.split_chain_with_inherit(ion_id, temp_zone, inherit="right")
+            # 結果: src_zone=[], temp_zone=[ion_id]
+            
+            # Step 2: Shuttle
             ops.append(ShuttleOp(target=ion_id, dst=shuttle_op.dst, dst_chain_length=len(dst_contents)))
             
-            # dst_zoneが空ならそのまま移動
-            if len(dst_contents) == 0:
-                state.move_ion(ion_id, dst_zone)
+            # Step 3: Merge (dstチェインと結合)
+            temp_contents = state.zone_contents[temp_zone]
+            if is_right_direction:
+                ops.append(MergeOp(zone_left=temp_zone, zone_right=dst_zone, inherit="right"))
+                state.zone_contents[dst_zone] = temp_contents + state.zone_contents[dst_zone]
             else:
-                # Mergeが必要
-                if is_right_direction:
-                    # 右方向: src | dst → inherit="right"でdstを保持
-                    ops.append(MergeOp(zone_left=src_zone, zone_right=dst_zone, inherit="right"))
-                    state.zone_contents[dst_zone] = [ion_id] + state.zone_contents[dst_zone]
-                else:
-                    # 左方向: dst | src → inherit="left"でdstを保持
-                    ops.append(MergeOp(zone_left=dst_zone, zone_right=src_zone, inherit="left"))
-                    state.zone_contents[dst_zone] = state.zone_contents[dst_zone] + [ion_id]
-                state.zone_contents[src_zone] = []
-                state.ion_locations[ion_id] = dst_zone
+                ops.append(MergeOp(zone_left=dst_zone, zone_right=temp_zone, inherit="left"))
+                state.zone_contents[dst_zone] = state.zone_contents[dst_zone] + temp_contents
+            
+            for ion in temp_contents:
+                state.ion_locations[ion] = dst_zone
+            state.zone_contents[temp_zone] = []
+            
             return ops
         
         # === 通常ケース: srcに複数イオン ===
@@ -751,27 +766,20 @@ class OperationExpander:
         ops.append(ShuttleOp(target=ion_id, dst=shuttle_op.dst, dst_chain_length=len(dst_contents)))
         
         # === Step 3: Merge (dstチェインと結合) ===
-        if len(dst_contents) == 0:
-            # dst_zoneが空: temp_zoneの内容をdst_zoneへ移動
-            state.zone_contents[dst_zone] = state.zone_contents[temp_zone].copy()
-            for ion in state.zone_contents[temp_zone]:
-                state.ion_locations[ion] = dst_zone
-            state.zone_contents[temp_zone] = []
+        # dst_zoneが空でも非空でも、MergeOpを追加して一貫性を保つ
+        temp_contents = state.zone_contents[temp_zone]
+        if is_right_direction:
+            # 右方向: temp | dst → inherit="right"でdstを保持
+            ops.append(MergeOp(zone_left=temp_zone, zone_right=dst_zone, inherit="right"))
+            state.zone_contents[dst_zone] = temp_contents + state.zone_contents[dst_zone]
         else:
-            if is_right_direction:
-                # 右方向: temp | dst → inherit="right"でdstを保持
-                ops.append(MergeOp(zone_left=temp_zone, zone_right=dst_zone, inherit="right"))
-                temp_contents = state.zone_contents[temp_zone]
-                state.zone_contents[dst_zone] = temp_contents + state.zone_contents[dst_zone]
-            else:
-                # 左方向: dst | temp → inherit="left"でdstを保持
-                ops.append(MergeOp(zone_left=dst_zone, zone_right=temp_zone, inherit="left"))
-                temp_contents = state.zone_contents[temp_zone]
-                state.zone_contents[dst_zone] = state.zone_contents[dst_zone] + temp_contents
-            
-            for ion in temp_contents:
-                state.ion_locations[ion] = dst_zone
-            state.zone_contents[temp_zone] = []
+            # 左方向: dst | temp → inherit="left"でdstを保持
+            ops.append(MergeOp(zone_left=dst_zone, zone_right=temp_zone, inherit="left"))
+            state.zone_contents[dst_zone] = state.zone_contents[dst_zone] + temp_contents
+        
+        for ion in temp_contents:
+            state.ion_locations[ion] = dst_zone
+        state.zone_contents[temp_zone] = []
         
         return ops
 
