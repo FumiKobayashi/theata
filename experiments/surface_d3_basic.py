@@ -7,6 +7,15 @@ Surface-17 Syndrome Extraction Circuit - Basic Compilation Experiment
 使用方法:
     python experiments/surface17_basic.py
 
+    # Baseline
+    config = CompilerConfig.baseline()
+
+    # バッチ処理（LIZ容量でバッチ）
+    config = CompilerConfig(batch_reset_measure=True)
+
+    # バッチサイズ指定
+    config = CompilerConfig(batch_reset_measure=True, batch_size=2)
+
 出力:
     - コンパイル結果（操作数、統計情報）
     - 時間推定（内訳、合計）
@@ -359,12 +368,114 @@ def save_operations_json(
     print(f"\n[Output] Saved to: {filepath}")
 
 
+# ==========================================
+# DAG分析機能
+# ==========================================
+
+def analyze_dag(dag, strategy: str = "min_id") -> dict:
+    """
+    DAGの構造と実行シミュレーションを分析
+    
+    Args:
+        dag: DAGオブジェクト
+        strategy: ゲート選択戦略 ("min_id" のみ対応)
+    
+    Returns:
+        分析結果の辞書
+    """
+    from ast_def import GateOp, ResetOp, MeasureOp
+    import copy
+    
+    # DAGをコピーして分析（元のDAGを変更しない）
+    dag_copy = copy.deepcopy(dag)
+    dag_copy.reset_execution()
+    
+    # 基本統計
+    num_nodes = len(dag_copy.nodes)
+    num_edges = sum(len(n.successors) for n in dag_copy.nodes.values())
+    
+    # Front Layer推移をシミュレート
+    front_layer_sizes = []
+    front_layer_details = []  # 各イテレーションの詳細
+    
+    iteration = 0
+    while not dag_copy.is_complete():
+        front = dag_copy.get_front_layer()
+        
+        # 各タイプをカウント
+        resets = [nid for nid in front if isinstance(dag_copy.nodes[nid].operation, ResetOp)]
+        measures = [nid for nid in front if isinstance(dag_copy.nodes[nid].operation, MeasureOp)]
+        gates = [nid for nid in front if isinstance(dag_copy.nodes[nid].operation, GateOp)]
+        
+        front_layer_sizes.append(len(front))
+        front_layer_details.append({
+            "iteration": iteration,
+            "total": len(front),
+            "resets": len(resets),
+            "gates": len(gates),
+            "measures": len(measures)
+        })
+        
+        # 選択戦略に従って実行
+        if strategy == "min_id":
+            selected = min(front)
+        else:
+            selected = min(front)  # デフォルトはmin_id
+        
+        dag_copy.execute(selected)
+        iteration += 1
+    
+    # 統計計算
+    if front_layer_sizes:
+        min_front = min(front_layer_sizes)
+        max_front = max(front_layer_sizes)
+        avg_front = sum(front_layer_sizes) / len(front_layer_sizes)
+    else:
+        min_front = max_front = avg_front = 0
+    
+    return {
+        "num_nodes": num_nodes,
+        "num_edges": num_edges,
+        "total_iterations": iteration,
+        "front_layer_stats": {
+            "min": min_front,
+            "max": max_front,
+            "avg": round(avg_front, 2)
+        },
+        "front_layer_sizes": front_layer_sizes,
+        "front_layer_details": front_layer_details
+    }
+
+
+def print_dag_analysis(analysis: dict, verbose: bool = False):
+    """DAG分析結果を表示"""
+    print(f"\n[DAG Analysis]")
+    print(f"  Nodes: {analysis['num_nodes']}")
+    print(f"  Edges: {analysis['num_edges']}")
+    print(f"  Total iterations: {analysis['total_iterations']}")
+    print(f"  Front Layer size: min={analysis['front_layer_stats']['min']}, "
+          f"max={analysis['front_layer_stats']['max']}, "
+          f"avg={analysis['front_layer_stats']['avg']}")
+    
+    if verbose:
+        print(f"\n  Front Layer evolution (first 30 iterations):")
+        for detail in analysis['front_layer_details'][:30]:
+            print(f"    Iter {detail['iteration']:3d}: "
+                  f"total={detail['total']:2d} "
+                  f"(R:{detail['resets']}, G:{detail['gates']}, M:{detail['measures']})")
+        if len(analysis['front_layer_details']) > 30:
+            print(f"    ... ({len(analysis['front_layer_details']) - 30} more iterations)")
+
+
 def run_experiment(
     liz_capacity: int = 4,
     memory_capacity: int = 30,
     placement_name: str = "default",
     config: CompilerConfig = None,
-    output_dir: str = None
+    output_dir: str = None,
+    stabilizer_parallel: bool = False,
+    analyze_dag_structure: bool = False,
+    verbose_dag: bool = False
 ):
     """
     Surface-17のコンパイル実験を実行
@@ -375,12 +486,16 @@ def run_experiment(
         placement_name: 初期配置の名前（"default", "interleaved"など）
         config: コンパイラ設定（Noneならbaseline）
         output_dir: 結果を保存するディレクトリ（Noneなら保存しない）
+        stabilizer_parallel: Trueの場合、スタビライザ単位で並列化したDAGを使用
+        analyze_dag_structure: Trueの場合、DAG構造を分析して表示
+        verbose_dag: Trueの場合、DAG分析の詳細（Front Layer推移）を表示
     """
     config = config or CompilerConfig.baseline()
     
     print("=" * 70)
     print("Surface-17 Syndrome Extraction - Compilation Experiment")
     print(f"Config: {config}")
+    print(f"DAG mode: {'stabilizer_parallel' if stabilizer_parallel else 'normal'}")
     print("=" * 70)
     
     # パース
@@ -390,9 +505,18 @@ def run_experiment(
     print(f"  Instructions: {len(program.instructions)}")
     
     # DAG構築
-    builder = DAGBuilder(program)
+    if stabilizer_parallel:
+        builder = DAGBuilder(program, stabilizer_parallel=True)
+    else:
+        builder = DAGBuilder(program)
     dag = builder.build()
     print(f"  DAG nodes: {len(dag.nodes)}")
+    print(f"  DAG mode: {'stabilizer_parallel' if stabilizer_parallel else 'normal'}")
+    
+    # DAG分析
+    if analyze_dag_structure:
+        dag_analysis = analyze_dag(dag)
+        print_dag_analysis(dag_analysis, verbose=verbose_dag)
     
     # アーキテクチャ
     arch = QCCDArchitecture.simple_mlm(
@@ -472,15 +596,29 @@ def run_experiment(
 
 def main():
     """メイン関数"""
-    # 出力ディレクトリ（experiments/ と同階層の result/）
+    # 出力ディレクトリ（experiments/ と同階層の results/）
     output_dir = Path(__file__).parent.parent / "results"
     
-    # 基本実験
+    # ========================================
+    # 実験設定（ここを変更して実験を切り替える）
+    # ========================================
+    # config = CompilerConfig.baseline()  # batch_reset_measure=False
+    config = CompilerConfig(batch_reset_measure=True, batch_size=3)  # バッチ処理ON
+    
+    # ========================================
+    
+    print("\n" + "=" * 70)
+    print(" Surface-17 Compilation Experiment")
+    print("=" * 70)
     result, estimation = run_experiment(
         liz_capacity=4,
         memory_capacity=20,
         placement_name="default",
-        output_dir=str(output_dir)
+        config=config,
+        stabilizer_parallel=True,
+        analyze_dag_structure=True,
+        verbose_dag=False,
+        output_dir=output_dir  # JSON出力
     )
     
     print("\n" + "=" * 70)

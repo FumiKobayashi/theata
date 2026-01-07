@@ -55,10 +55,20 @@ class CompilerConfig:
         target_liz_selection: 目標LIZ選択戦略
             - "first_available": 空きがあるLIZ（baseline）
             - "ion_aware": 関連イオンが多いLIZを優先
+        
+        batch_reset_measure: RESET/MEASUREバッチ処理
+            - False: 1つずつ実行（baseline）
+            - True: Front Layer内の複数RESET/MEASUREをまとめてLIZに運び実行
+        
+        batch_size: バッチサイズ
+            - 0: LIZ capacityを使用（デフォルト）
+            - 1以上: 指定したサイズでバッチ処理
     """
     gate_selection: str = "min_id"
     eviction_policy: str = "first"
     target_liz_selection: str = "first_available"
+    batch_reset_measure: bool = False
+    batch_size: int = 0  # 0 = LIZ capacityを使用
     
     def to_dict(self) -> dict:
         """JSON出力用に辞書化"""
@@ -67,7 +77,9 @@ class CompilerConfig:
     def __repr__(self) -> str:
         return (f"CompilerConfig(gate={self.gate_selection}, "
                 f"evict={self.eviction_policy}, "
-                f"liz={self.target_liz_selection})")
+                f"liz={self.target_liz_selection}, "
+                f"batch={self.batch_reset_measure}, "
+                f"batch_size={self.batch_size})")
     
     @classmethod
     def baseline(cls) -> "CompilerConfig":
@@ -842,6 +854,14 @@ class QCCDCompiler:
             stats["iterations"] += 1
             front_layer = dag.get_front_layer()
             
+            # バッチ処理: RESET/MEASUREをまとめて処理
+            if self.config.batch_reset_measure:
+                batch_ops, batch_count = self._try_batch_reset_measure(dag, front_layer, state)
+                if batch_count > 0:
+                    operations.extend(batch_ops)
+                    stats["gates"] += batch_count
+                    continue
+            
             # Step 1: 実行可能なゲートを探す
             executable_node = self._find_executable_gate(dag, front_layer, state)
             
@@ -925,14 +945,54 @@ class QCCDCompiler:
         
         Front Layerから最小IDの実行可能なゲートを選択。
         決定的な動作のため、デバッグや比較に適している。
+        
+        バッチ処理が有効な場合:
+        - RESET/MEASUREがbatch_size個溜まるまで待機（他のゲートを優先）
+        - ただし、他のゲートがない場合はRESET/MEASUREを実行
         """
+        skip_reset = False
+        skip_measure = False
+        
+        if self.config.batch_reset_measure:
+            liz = self.architecture.get_liz_zones()[0]
+            effective_batch_size = self.config.batch_size if self.config.batch_size > 0 else liz.capacity
+            
+            # Front LayerのRESET/MEASURE数をカウント
+            reset_count = sum(1 for nid in front_layer 
+                             if isinstance(dag.nodes[nid].operation, ResetOp))
+            measure_count = sum(1 for nid in front_layer 
+                               if isinstance(dag.nodes[nid].operation, MeasureOp))
+            
+            # 他に実行可能なゲートがあるか確認
+            has_other_gate = False
+            for node_id in front_layer:
+                node = dag.nodes[node_id]
+                if isinstance(node.operation, GateOp):
+                    if state.can_execute(node.operation):
+                        has_other_gate = True
+                        break
+            
+            # RESET/MEASUREの待機判定
+            # batch_size未満で、他のゲートがあればスキップ
+            if 0 < reset_count < effective_batch_size and has_other_gate:
+                skip_reset = True
+            if 0 < measure_count < effective_batch_size and has_other_gate:
+                skip_measure = True
+        
+        # ゲート選択
         for node_id in sorted(front_layer):
             node = dag.nodes[node_id]
             if isinstance(node.operation, GateOp):
                 if state.can_execute(node.operation):
                     return node
-            elif isinstance(node.operation, (ResetOp, MeasureOp)):
-                # RESET/MEASUREはLIZで実行、かつLIZにターゲット以外がいないこと
+            elif isinstance(node.operation, ResetOp):
+                if skip_reset:
+                    continue
+                if state.can_execute_reset_measure(node.operation):
+                    return node
+            elif isinstance(node.operation, MeasureOp):
+                if skip_measure:
+                    continue
                 if state.can_execute_reset_measure(node.operation):
                     return node
         return None
@@ -949,6 +1009,222 @@ class QCCDCompiler:
         # 暫定: min_idと同じ動作（後で実装）
         return self._find_gate_min_id(dag, front_layer, state)
     
+    def _try_batch_reset_measure(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> Tuple[List[Operation], int]:
+        """
+        RESET/MEASUREをバッチ処理（複数ターゲットを1操作にまとめる）
+        
+        戦略:
+        1. Front Layerから全RESET（またはMEASURE）を集める
+        2. config.batch_sizeまたはLIZ容量でバッチサイズを決定
+        3. バッチサイズに達していなければ待機（ただし他のゲートがない場合は処理）
+        4. LIZ内の非ターゲットイオンを退避
+        5. 全ターゲットをLIZに搬入
+        6. 1つのRESET/MEASURE操作（複数targets）を発行
+        
+        Returns:
+            (操作列, 実行したノード数)
+        """
+        operations: List[Operation] = []
+        
+        # Front LayerからRESETとMEASUREを集める
+        reset_nodes = []
+        measure_nodes = []
+        gate_nodes = []
+        
+        for node_id in sorted(front_layer):
+            node = dag.nodes[node_id]
+            if isinstance(node.operation, ResetOp):
+                reset_nodes.append(node)
+            elif isinstance(node.operation, MeasureOp):
+                measure_nodes.append(node)
+            elif isinstance(node.operation, GateOp):
+                gate_nodes.append(node)
+        
+        # 他のゲート（RESET/MEASURE以外）があるか
+        has_other_gate = len(gate_nodes) > 0
+        
+        # LIZ情報を取得
+        liz = self.architecture.get_liz_zones()[0]
+        liz_id = liz.id
+        liz_capacity = liz.capacity
+        
+        # 有効なバッチサイズを計算
+        effective_batch_size = self.config.batch_size if self.config.batch_size > 0 else liz_capacity
+        
+        # RESETのバッチ処理条件:
+        # - batch_size以上ある、または
+        # - 2つ以上あり、他のゲートがない（待機しても増えない）
+        should_batch_reset = (
+            len(reset_nodes) >= effective_batch_size or 
+            (len(reset_nodes) >= 2 and not has_other_gate and len(measure_nodes) == 0)
+        )
+        
+        if should_batch_reset:
+            # 実際のバッチサイズ: effective_batch_sizeとLIZ容量の小さい方が上限
+            actual_batch_size = min(len(reset_nodes), liz_capacity, effective_batch_size)
+            batch_nodes = reset_nodes[:actual_batch_size]
+            batch_targets = [node.operation.targets[0] for node in batch_nodes]
+            
+            # Step 1: LIZ内の非ターゲットイオンを全て退避
+            liz_contents = state.zone_contents.get(liz_id, [])[:]
+            for ion in liz_contents:
+                if ion not in batch_targets:
+                    evict_zone = 2 if ion >= 9 else 0
+                    to_right = evict_zone > liz_id
+                    self._swap_to_edge(ion, state, operations, to_right=to_right)
+                    loc = Location(trap=evict_zone, site=0)
+                    evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(evict_zone, [])))
+                    operations.append(evict_op)
+                    state.move_ion(ion, evict_zone)
+            
+            # Step 2: 全ターゲットをLIZに搬入
+            for target_id in batch_targets:
+                if not state.is_in_liz(target_id):
+                    src_zone = state.locate(target_id)
+                    to_right = liz_id > src_zone
+                    self._swap_to_edge(target_id, state, operations, to_right=to_right)
+                    loc = Location(trap=liz_id, site=0)
+                    shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
+                    operations.append(shuttle_op)
+                    state.move_ion(target_id, liz_id)
+            
+            # Step 3: 1つのRESET操作（複数targets）を発行
+            batch_reset = ResetOp(targets=batch_targets)
+            operations.append(batch_reset)
+            
+            # Step 4: DAGノードを実行済みにマーク
+            for node in batch_nodes:
+                dag.execute(node.id)
+            
+            return (operations, len(batch_nodes))
+        
+        # MEASUREのバッチ処理条件:
+        # - batch_size以上ある、または
+        # - 2つ以上あり、他のゲートがない（待機しても増えない）
+        should_batch_measure = (
+            len(measure_nodes) >= effective_batch_size or
+            (len(measure_nodes) >= 2 and not has_other_gate and len(reset_nodes) == 0)
+        )
+        
+        if should_batch_measure:
+            # 実際のバッチサイズ: effective_batch_sizeとLIZ容量の小さい方が上限
+            actual_batch_size = min(len(measure_nodes), liz_capacity, effective_batch_size)
+            batch_nodes = measure_nodes[:actual_batch_size]
+            batch_targets = [node.operation.targets[0] for node in batch_nodes]
+            
+            # Step 1: LIZ内の非ターゲットイオンを全て退避
+            liz_contents = state.zone_contents.get(liz_id, [])[:]
+            for ion in liz_contents:
+                if ion not in batch_targets:
+                    evict_zone = 2 if ion >= 9 else 0
+                    to_right = evict_zone > liz_id
+                    self._swap_to_edge(ion, state, operations, to_right=to_right)
+                    loc = Location(trap=evict_zone, site=0)
+                    evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(evict_zone, [])))
+                    operations.append(evict_op)
+                    state.move_ion(ion, evict_zone)
+            
+            # Step 2: 全ターゲットをLIZに搬入
+            for target_id in batch_targets:
+                if not state.is_in_liz(target_id):
+                    src_zone = state.locate(target_id)
+                    to_right = liz_id > src_zone
+                    self._swap_to_edge(target_id, state, operations, to_right=to_right)
+                    loc = Location(trap=liz_id, site=0)
+                    shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
+                    operations.append(shuttle_op)
+                    state.move_ion(target_id, liz_id)
+            
+            # Step 3: 1つのMEASURE操作（複数targets）を発行
+            batch_measure = MeasureOp(targets=batch_targets)
+            operations.append(batch_measure)
+            
+            # Step 4: DAGノードを実行済みにマーク
+            for node in batch_nodes:
+                dag.execute(node.id)
+            
+            return (operations, len(batch_nodes))
+        
+        # バッチ処理の条件を満たさない
+        return ([], 0)
+    
+    def _swap_to_edge(self, ion_id: int, state: QCCDState, operations: List[Operation], to_right: bool = True):
+        """
+        イオンをzone内で端に移動するためのSwap操作を生成
+        
+        Args:
+            ion_id: 移動するイオンのID
+            state: 現在の状態
+            operations: 操作を追加するリスト
+            to_right: Trueなら右端、Falseなら左端に移動
+        """
+        zone_id = state.locate(ion_id)
+        contents = state.zone_contents[zone_id]
+        ion_pos = contents.index(ion_id)
+        
+        if to_right:
+            # 右端に移動
+            while ion_pos < len(contents) - 1:
+                swap_with = contents[ion_pos + 1]
+                swap_op = SwapOp(targets=[ion_id, swap_with])
+                operations.append(swap_op)
+                contents[ion_pos], contents[ion_pos + 1] = contents[ion_pos + 1], contents[ion_pos]
+                ion_pos += 1
+        else:
+            # 左端に移動
+            while ion_pos > 0:
+                swap_with = contents[ion_pos - 1]
+                swap_op = SwapOp(targets=[ion_id, swap_with])
+                operations.append(swap_op)
+                contents[ion_pos], contents[ion_pos - 1] = contents[ion_pos - 1], contents[ion_pos]
+                ion_pos -= 1
+    
+    def _generate_shuttle_ops_for_target(self, node: DAGNode, state: QCCDState) -> List[Tuple[Operation, str]]:
+        """
+        特定のノード（RESET/MEASURE）のターゲットをLIZに持っていくための移動操作を生成
+        """
+        target_id = node.operation.targets[0]
+        movement_ops: List[Tuple[Operation, str]] = []
+        
+        # LIZを取得
+        liz = self.architecture.get_liz_zones()[0]
+        liz_id = liz.id
+        
+        # ターゲットがLIZにいない場合、移動させる
+        if not state.is_in_liz(target_id):
+            # LIZが満杯なら退避
+            liz_contents = state.zone_contents.get(liz_id, [])
+            while len(liz_contents) >= liz.capacity:
+                # LIZから1イオン退避
+                evict_ion = liz_contents[0]
+                nearest_memory = self.architecture.find_nearest_memory(liz_id)
+                if nearest_memory is not None:
+                    loc = Location(trap=nearest_memory, site=0)
+                    evict_op = ShuttleOp(target=evict_ion, dst=loc, dst_chain_length=len(state.zone_contents.get(nearest_memory, [])))
+                    movement_ops.append((evict_op, "out"))
+                    state.move_ion(evict_ion, nearest_memory)
+                liz_contents = state.zone_contents.get(liz_id, [])
+            
+            # ターゲットをLIZに移動
+            src_zone = state.locate(target_id)
+            loc = Location(trap=liz_id, site=0)
+            shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
+            movement_ops.append((shuttle_op, "in"))
+            state.move_ion(target_id, liz_id)
+        
+        # LIZにターゲット以外がいる場合、退避
+        liz_contents = state.zone_contents.get(liz_id, [])
+        for ion in liz_contents[:]:
+            if ion != target_id:
+                nearest_memory = self.architecture.find_nearest_memory(liz_id)
+                if nearest_memory is not None:
+                    loc = Location(trap=nearest_memory, site=0)
+                    evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(nearest_memory, [])))
+                    movement_ops.append((evict_op, "out"))
+                    state.move_ion(ion, nearest_memory)
+        
+        return movement_ops
+    
     def _generate_shuttle_ops(self, dag: DAG, front_layer: Set[int], state: QCCDState) -> List[Tuple[Operation, str]]:
         """
         必要な移動操作を生成
@@ -961,10 +1237,43 @@ class QCCDCompiler:
         - LIZが満杯なら、Front Layerで不要なイオンを退避
         - SHUTTLE前に必要ならSWAPを挿入
         - RESET/MEASUREの場合、LIZ上のターゲット以外を退避
+        
+        バッチ処理が有効な場合:
+        - RESET/MEASUREがbatch_size未満で他のゲートがあればスキップ
         """
-        # 最小IDのゲートを対象にする
+        skip_reset = False
+        skip_measure = False
+        
+        if self.config.batch_reset_measure:
+            liz = self.architecture.get_liz_zones()[0]
+            effective_batch_size = self.config.batch_size if self.config.batch_size > 0 else liz.capacity
+            
+            reset_count = sum(1 for nid in front_layer 
+                             if isinstance(dag.nodes[nid].operation, ResetOp))
+            measure_count = sum(1 for nid in front_layer 
+                               if isinstance(dag.nodes[nid].operation, MeasureOp))
+            
+            # 他のゲート（GateOpのみ）があるか確認
+            has_other_gate = any(
+                isinstance(dag.nodes[nid].operation, GateOp)
+                for nid in front_layer
+            )
+            
+            if 0 < reset_count < effective_batch_size and has_other_gate:
+                skip_reset = True
+            if 0 < measure_count < effective_batch_size and has_other_gate:
+                skip_measure = True
+        
+        # 最小IDのゲートを対象にする（RESET/MEASUREスキップ対応）
         for node_id in sorted(front_layer):
             node = dag.nodes[node_id]
+            
+            # RESET/MEASUREスキップ
+            if skip_reset and isinstance(node.operation, ResetOp):
+                continue
+            if skip_measure and isinstance(node.operation, MeasureOp):
+                continue
+            
             if isinstance(node.operation, (GateOp, ResetOp, MeasureOp)):
                 targets = node.operation.targets
                 movement_ops: List[Tuple[Operation, str]] = []
