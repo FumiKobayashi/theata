@@ -40,8 +40,8 @@ CONFIG = CompilerConfig(
     gate_selection="min_id",
     eviction_policy="first",
     target_liz_selection="first_available",
-    batch_reset_measure=True,
-    batch_size=4,
+    batch_reset_measure=False,
+    batch_size=0,
 )
 
 # アーキテクチャ設定

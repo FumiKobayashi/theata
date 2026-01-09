@@ -243,6 +243,21 @@ class QCCDState:
         for zone in self.architecture.zones:
             if zone.id not in self.zone_contents:
                 self.zone_contents[zone.id] = []
+        
+        # Split/Mergeカウンター（ゾーンIDリセット用）
+        self.split_count = 0
+        self.merge_count = 0
+        
+        # 一時ゾーンIDカウンター
+        self.temp_zone_counter = 0
+        
+        # 初期ゾーン構成を記録（リセット時に使用）
+        self.initial_zone_ids = [zone.id for zone in self.architecture.zones]
+    
+    def allocate_temp_zone(self) -> int:
+        """一時ゾーンIDを割り当て（負の数を使用）"""
+        self.temp_zone_counter += 1
+        return -self.temp_zone_counter
     
     def place_ion(self, ion_id: int, zone_id: int):
         """イオンを指定ゾーンに配置（初期配置用）"""
@@ -436,6 +451,9 @@ class QCCDState:
                     "left": 左側が元ID、右側がnew_zone_id（デフォルト）
                     "right": 右側が元ID、左側がnew_zone_id
         """
+        # カウンターをインクリメント
+        self.split_count += 1
+        
         if ion_id is None:
             # 全イオンを右側へ渡す
             if source_zone_id is None:
@@ -497,27 +515,91 @@ class QCCDState:
         """
         self.split_chain(ion_id, new_zone_id, inherit=inherit)
     
-    def merge_chains(self, zone_left: int, zone_right: int):
+    def merge_chains(self, zone_left: int, zone_right: int, inherit: str = "left"):
         """
         2つのイオンチェーンを結合
         
         Args:
-            zone_left: 左側のゾーン（このIDが継承される）
-            zone_right: 右側のゾーン（結合後消滅）
-        """
-        left_contents = self.zone_contents[zone_left]
-        right_contents = self.zone_contents[zone_right]
+            zone_left: 左側のゾーン
+            zone_right: 右側のゾーン
+            inherit: "left" or "right" - どちらのIDが継承されるか
         
-        # 結合
+        結果: left_contents + right_contents の順序で結合
+              inheritで指定されたゾーンIDが結果として残る
+        """
+        left_contents = self.zone_contents.get(zone_left, [])
+        right_contents = self.zone_contents.get(zone_right, [])
+        
+        # 結合（順序は常に左+右）
         merged = left_contents + right_contents
         
+        # 継承先のゾーンIDを決定
+        if inherit == "left":
+            result_zone = zone_left
+            other_zone = zone_right
+        else:
+            result_zone = zone_right
+            other_zone = zone_left
+        
         # 状態を更新
-        self.zone_contents[zone_left] = merged
-        self.zone_contents[zone_right] = []
+        self.zone_contents[result_zone] = merged
+        self.zone_contents[other_zone] = []
         
         # ion_locationsを更新
-        for ion in right_contents:
-            self.ion_locations[ion] = zone_left
+        for ion in merged:
+            self.ion_locations[ion] = result_zone
+        
+        # カウンターをインクリメント
+        self.merge_count += 1
+        
+        # Split数 == Merge数 → 初期ゾーン構成に戻った
+        # 一時ゾーンIDカウンターをリセット（次のサイクルは-1から開始）
+        if self.split_count == self.merge_count:
+            self.temp_zone_counter = 0
+            self.temp_zone_counter = 0
+    
+    def _reset_zone_ids_to_initial(self):
+        """
+        ゾーンIDを初期状態(0, 1, 2)にリセット
+        
+        Split数 == Merge数 になった時点で、ゾーン数は初期状態と同じはず。
+        ゾーンの物理的な並び（左→右）に基づいて、初期IDを再割り当てする。
+        """
+        # 現在存在する非空ゾーンを取得（空ゾーンも含む）
+        current_zones = {}
+        for zone_id, contents in self.zone_contents.items():
+            if contents or zone_id in self.initial_zone_ids:
+                current_zones[zone_id] = contents
+        
+        # 初期ゾーンID（0, 1, 2）で再マッピング
+        # 物理位置に基づいてソート: 負のIDは一時ゾーンなので、
+        # 実際には非空ゾーンを左から順に割り当てる
+        non_empty_zones = [(zid, contents) for zid, contents in current_zones.items() if contents]
+        
+        if len(non_empty_zones) != len(self.initial_zone_ids):
+            # ゾーン数が一致しない場合はスキップ（安全のため）
+            return
+        
+        # 新しいマッピングを作成
+        new_zone_contents = {}
+        new_ion_locations = {}
+        
+        for new_id, (old_id, contents) in zip(self.initial_zone_ids, non_empty_zones):
+            new_zone_contents[new_id] = contents
+            for ion in contents:
+                new_ion_locations[ion] = new_id
+        
+        # 空ゾーンも初期化
+        for zone_id in self.initial_zone_ids:
+            if zone_id not in new_zone_contents:
+                new_zone_contents[zone_id] = []
+        
+        # 状態を更新
+        self.zone_contents = new_zone_contents
+        self.ion_locations = new_ion_locations
+        
+        # 一時ゾーンIDカウンターもリセット
+        self.temp_zone_counter = 0
 
 
 
@@ -534,12 +616,7 @@ class OperationExpander:
     """
     
     def __init__(self):
-        self._temp_zone_counter = 0
-    
-    def _allocate_temp_zone(self) -> int:
-        """一時ゾーンIDを割り当て（負の数を使用）"""
-        self._temp_zone_counter += 1
-        return -self._temp_zone_counter
+        pass  # temp_zone_counterはQCCDStateが管理
     
     def expand(
         self, 
@@ -563,7 +640,6 @@ class OperationExpander:
         for ion_id, zone_id in initial_placement.items():
             state.place_ion(ion_id, zone_id)
         
-        self._temp_zone_counter = 0
         expanded: List[Operation] = []
         
         for op in operations:
@@ -621,7 +697,7 @@ class OperationExpander:
         elif left_pos == 0:
             # パターン2: 左端ペア [A, B, C, D] の Swap(A, B)
             # Split(B) → [A, B] | [C, D]
-            temp = self._allocate_temp_zone()
+            temp = state.allocate_temp_zone()
             ops.append(SplitOp(ion_id=right_ion, right_zone_id=temp))
             state.split_chain(right_ion, temp)
             
@@ -637,7 +713,7 @@ class OperationExpander:
             # パターン3: 右端ペア [A, B, C, D] の Swap(C, D)
             # Split(left_pos - 1のイオン) → [A, B] | [C, D]
             split_ion = contents[left_pos - 1]
-            temp = self._allocate_temp_zone()
+            temp = state.allocate_temp_zone()
             ops.append(SplitOp(ion_id=split_ion, right_zone_id=temp))
             state.split_chain(split_ion, temp)
             
@@ -653,12 +729,12 @@ class OperationExpander:
             # パターン4: 中間ペア [A, B, C, D] の Swap(B, C)
             # Split(left_pos - 1のイオン) → [A] | [B, C, D]
             split_ion1 = contents[left_pos - 1]
-            temp1 = self._allocate_temp_zone()
+            temp1 = state.allocate_temp_zone()
             ops.append(SplitOp(ion_id=split_ion1, right_zone_id=temp1))
             state.split_chain(split_ion1, temp1)
             
             # Split(right_ion) → [A] | [B, C] | [D]
-            temp2 = self._allocate_temp_zone()
+            temp2 = state.allocate_temp_zone()
             ops.append(SplitOp(ion_id=right_ion, right_zone_id=temp2))
             state.split_chain(right_ion, temp2)
             
@@ -704,7 +780,7 @@ class OperationExpander:
         # === src_zoneに1イオンのみのケース ===
         # 物理的には Split → Shuttle → Merge が必要
         if len(src_contents) == 1:
-            temp_zone = self._allocate_temp_zone()
+            temp_zone = state.allocate_temp_zone()
             
             # Step 1: Split (srcからion_idを分離)
             ops.append(SplitOp(ion_id=ion_id, right_zone_id=temp_zone, inherit="right"))
@@ -715,17 +791,12 @@ class OperationExpander:
             ops.append(ShuttleOp(target=ion_id, dst=shuttle_op.dst, dst_chain_length=len(dst_contents)))
             
             # Step 3: Merge (dstチェインと結合)
-            temp_contents = state.zone_contents[temp_zone]
             if is_right_direction:
                 ops.append(MergeOp(zone_left=temp_zone, zone_right=dst_zone, inherit="right"))
-                state.zone_contents[dst_zone] = temp_contents + state.zone_contents[dst_zone]
+                state.merge_chains(temp_zone, dst_zone, inherit="right")
             else:
                 ops.append(MergeOp(zone_left=dst_zone, zone_right=temp_zone, inherit="left"))
-                state.zone_contents[dst_zone] = state.zone_contents[dst_zone] + temp_contents
-            
-            for ion in temp_contents:
-                state.ion_locations[ion] = dst_zone
-            state.zone_contents[temp_zone] = []
+                state.merge_chains(dst_zone, temp_zone, inherit="left")
             
             return ops
         
@@ -733,7 +804,7 @@ class OperationExpander:
         ion_pos = src_contents.index(ion_id)
         
         # 一時ゾーンIDを取得
-        temp_zone = self._allocate_temp_zone()
+        temp_zone = state.allocate_temp_zone()
         
         if is_right_direction:
             # 右方向: イオンは右端にいるはず
@@ -779,19 +850,15 @@ class OperationExpander:
         
         # === Step 3: Merge (dstチェインと結合) ===
         # dst_zoneが空でも非空でも、MergeOpを追加して一貫性を保つ
-        temp_contents = state.zone_contents[temp_zone]
         if is_right_direction:
             # 右方向: temp | dst → inherit="right"でdstを保持
             ops.append(MergeOp(zone_left=temp_zone, zone_right=dst_zone, inherit="right"))
-            state.zone_contents[dst_zone] = temp_contents + state.zone_contents[dst_zone]
+            # merge_chainsで正しく状態更新とカウンターリセットを行う
+            state.merge_chains(temp_zone, dst_zone, inherit="right")
         else:
             # 左方向: dst | temp → inherit="left"でdstを保持
             ops.append(MergeOp(zone_left=dst_zone, zone_right=temp_zone, inherit="left"))
-            state.zone_contents[dst_zone] = state.zone_contents[dst_zone] + temp_contents
-        
-        for ion in temp_contents:
-            state.ion_locations[ion] = dst_zone
-        state.zone_contents[temp_zone] = []
+            state.merge_chains(dst_zone, temp_zone, inherit="left")
         
         return ops
 
