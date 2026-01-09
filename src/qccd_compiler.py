@@ -1061,9 +1061,17 @@ class QCCDCompiler:
         
         if should_batch_reset:
             # 実際のバッチサイズ: effective_batch_sizeとLIZ容量の小さい方が上限
-            actual_batch_size = min(len(reset_nodes), liz_capacity, effective_batch_size)
-            batch_nodes = reset_nodes[:actual_batch_size]
-            batch_targets = [node.operation.targets[0] for node in batch_nodes]
+            max_batch = min(liz_capacity, effective_batch_size)
+            # 重複するターゲットを除外してバッチを構築
+            batch_targets = []
+            batch_nodes = []
+            for node in reset_nodes:
+                target = node.operation.targets[0]
+                if target not in batch_targets:
+                    batch_targets.append(target)
+                    batch_nodes.append(node)
+                    if len(batch_targets) >= max_batch:
+                        break
             
             # Step 1: LIZ内の非ターゲットイオンを全て退避
             liz_contents = state.zone_contents.get(liz_id, [])[:]
@@ -1108,9 +1116,17 @@ class QCCDCompiler:
         
         if should_batch_measure:
             # 実際のバッチサイズ: effective_batch_sizeとLIZ容量の小さい方が上限
-            actual_batch_size = min(len(measure_nodes), liz_capacity, effective_batch_size)
-            batch_nodes = measure_nodes[:actual_batch_size]
-            batch_targets = [node.operation.targets[0] for node in batch_nodes]
+            max_batch = min(liz_capacity, effective_batch_size)
+            # 重複するターゲットを除外してバッチを構築
+            batch_targets = []
+            batch_nodes = []
+            for node in measure_nodes:
+                target = node.operation.targets[0]
+                if target not in batch_targets:
+                    batch_targets.append(target)
+                    batch_nodes.append(node)
+                    if len(batch_targets) >= max_batch:
+                        break
             
             # Step 1: LIZ内の非ターゲットイオンを全て退避
             liz_contents = state.zone_contents.get(liz_id, [])[:]

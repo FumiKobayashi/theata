@@ -33,15 +33,15 @@ from estimator import Estimator
 # ==========================================
 
 # 回路モジュール名（circuits/以下のファイル名、拡張子なし）
-CIRCUIT_MODULE = "surface_d3_reuse3_interleaved"
+CIRCUIT_MODULE = "surface_d3_reuse4_interleaved"
 
 # コンパイラ設定
 CONFIG = CompilerConfig(
     gate_selection="min_id",
     eviction_policy="first",
     target_liz_selection="first_available",
-    batch_reset_measure=False,
-    batch_size=0,
+    batch_reset_measure=True,
+    batch_size=4,
 )
 
 # アーキテクチャ設定

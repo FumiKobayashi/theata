@@ -231,6 +231,8 @@ class DAGBuilder:
         self.last_op_per_stabilizer: Dict[int, Dict[int, int]] = {}
         self.active_stabilizer: Optional[int] = None  # 現在処理中のアンシラ
         self.completed_stabilizers: Set[int] = set()  # 完了したアンシラ
+        # アンシラ再利用対応: 各アンシラの最後のMEASUREノードID
+        self.last_measure_per_ancilla: Dict[int, int] = {}
         
         # 除外された操作を保存（後段で使用可能）
         self.excluded_movements: List[Operation] = []
@@ -303,6 +305,10 @@ class DAGBuilder:
                 if isinstance(op, ResetOp):
                     ancilla = self._get_ancilla_from_reset(op)
                     if ancilla is not None:
+                        # 同じアンシラの前回のMEASUREがあれば依存を追加
+                        if ancilla in self.last_measure_per_ancilla:
+                            predecessor_ids.add(self.last_measure_per_ancilla[ancilla])
+                        
                         self.active_stabilizer = ancilla
                         self.last_op_per_stabilizer[ancilla] = {}
                 
@@ -323,6 +329,8 @@ class DAGBuilder:
                     ancilla = self._get_ancilla_from_measure(op)
                     if ancilla is not None and ancilla == self.active_stabilizer:
                         self.completed_stabilizers.add(ancilla)
+                        # アンシラ再利用対応: このMEASUREのノードIDを保存
+                        self.last_measure_per_ancilla[ancilla] = node.id
                         self.active_stabilizer = None
             else:
                 # === 通常モード: 全体で依存関係を管理 ===
