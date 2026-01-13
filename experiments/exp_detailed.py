@@ -33,7 +33,7 @@ from estimator import Estimator
 # ==========================================
 
 # 回路モジュール名（circuits/以下のファイル名、拡張子なし）
-CIRCUIT_MODULE = "surface_d3_reuse4_interleaved"
+CIRCUIT_MODULE = "baseline_naive_d3"
 
 # コンパイラ設定
 CONFIG = CompilerConfig(
@@ -49,7 +49,7 @@ LIZ_CAPACITY = 4
 MEMORY_CAPACITY = 20
 
 # DAG設定
-STABILIZER_PARALLEL = True
+STABILIZER_PARALLEL = False
 
 
 # ==========================================
