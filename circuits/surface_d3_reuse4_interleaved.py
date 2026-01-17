@@ -1,16 +1,20 @@
 """
-Surface-17 (d=3) Syndrome Extraction Circuit - 4 Ancilla Reuse, Interleaved
+Surface-17 (d=3) Syndrome Extraction Circuit - 4 Ancilla Reuse (Interleaved Order)
 
 4つのアンシラで8スタビライザを測定。
-X/Zスタビライザを交互に配置（interleaved）。
+surface_d3_interleavedと同じ順序を維持。
 
 割り当て:
-  アンシラ9:  X0X1X3X4 → Z0Z3
-  アンシラ10: X1X2 → Z1Z2Z4Z5
-  アンシラ11: X4X5X7X8 → Z3Z4Z6Z7
-  アンシラ12: X6X7 → Z5Z8
+  アンシラ9:  X0X1X3X4 → Z0Z3 (2回)
+  アンシラ10: X1X2 → Z1Z2Z4Z5 (2回)
+  アンシラ11: X4X5X7X8 → Z3Z4Z6Z7 (2回)
+  アンシラ12: X6X7 → Z5Z8 (2回)
 
-順序: 9のX → 9のZ → 10のX → 10のZ → 11のX → 11のZ → 12のX → 12のZ
+順序 (surface_d3_interleaved準拠):
+  Pair 1: A9:  X0X1X3X4 → A9:  Z0Z3
+  Pair 2: A10: X1X2 → A10: Z1Z2Z4Z5
+  Pair 3: A11: X4X5X7X8 → A11: Z3Z4Z6Z7
+  Pair 4: A12: X6X7 → A12: Z5Z8
 """
 
 # メタデータ
@@ -30,14 +34,7 @@ STABILIZER_ASSIGNMENT = {
 
 CIRCUIT = """
 # ============================================================
-# Surface-17 Syndrome Extraction - 4 Ancilla Reuse, Interleaved
-# ============================================================
-# 
-# Order: Each ancilla measures X then Z before moving to next ancilla
-#   Ancilla 9:  X0X1X3X4 → Z0Z3
-#   Ancilla 10: X1X2 → Z1Z2Z4Z5
-#   Ancilla 11: X4X5X7X8 → Z3Z4Z6Z7
-#   Ancilla 12: X6X7 → Z5Z8
+# Surface-17 Syndrome Extraction - 4 Ancilla Reuse (Interleaved Order)
 # ============================================================
 
 # --- Qubit Declarations ---
@@ -56,10 +53,10 @@ QUBIT 11 AT (2, 2)
 QUBIT 12 AT (2, 3)
 
 # ============================================================
-# Ancilla 9: X0X1X3X4 → Z0Z3
+# Pair 1: Top-Left Region (Ancilla 9)
 # ============================================================
 
-# --- X0X1X3X4 (Ancilla 9) ---
+# --- X0X1X3X4 (Ancilla 9, 1st use) ---
 RESET 9
 R 9 3.1416 0.0
 R 9 1.5708 1.5708
@@ -91,7 +88,7 @@ R 9 3.1416 0.0
 R 9 1.5708 1.5708
 MEASURE 9
 
-# --- Z0Z3 (Ancilla 9, reused) ---
+# --- Z0Z3 (Ancilla 9, 2nd use) ---
 RESET 9
 # CNOT(9, 0)
 R 9 1.5708 1.5708
@@ -108,10 +105,10 @@ R 9 1.5708 4.7124
 MEASURE 9
 
 # ============================================================
-# Ancilla 10: X1X2 → Z1Z2Z4Z5
+# Pair 2: Top-Right Region (Ancilla 10)
 # ============================================================
 
-# --- X1X2 (Ancilla 10) ---
+# --- X1X2 (Ancilla 10, 1st use) ---
 RESET 10
 R 10 3.1416 0.0
 R 10 1.5708 1.5708
@@ -131,7 +128,7 @@ R 10 3.1416 0.0
 R 10 1.5708 1.5708
 MEASURE 10
 
-# --- Z1Z2Z4Z5 (Ancilla 10, reused) ---
+# --- Z1Z2Z4Z5 (Ancilla 10, 2nd use) ---
 RESET 10
 # CNOT(10, 2)
 R 10 1.5708 1.5708
@@ -160,10 +157,10 @@ R 10 1.5708 4.7124
 MEASURE 10
 
 # ============================================================
-# Ancilla 11: X4X5X7X8 → Z3Z4Z6Z7
+# Pair 3: Bottom-Left Region (Ancilla 11)
 # ============================================================
 
-# --- X4X5X7X8 (Ancilla 11) ---
+# --- X4X5X7X8 (Ancilla 11, 1st use) ---
 RESET 11
 R 11 3.1416 0.0
 R 11 1.5708 1.5708
@@ -195,7 +192,7 @@ R 11 3.1416 0.0
 R 11 1.5708 1.5708
 MEASURE 11
 
-# --- Z3Z4Z6Z7 (Ancilla 11, reused) ---
+# --- Z3Z4Z6Z7 (Ancilla 11, 2nd use) ---
 RESET 11
 # CNOT(11, 4)
 R 11 1.5708 1.5708
@@ -224,10 +221,10 @@ R 11 1.5708 4.7124
 MEASURE 11
 
 # ============================================================
-# Ancilla 12: X6X7 → Z5Z8
+# Pair 4: Bottom-Right Region (Ancilla 12)
 # ============================================================
 
-# --- X6X7 (Ancilla 12) ---
+# --- X6X7 (Ancilla 12, 1st use) ---
 RESET 12
 R 12 3.1416 0.0
 R 12 1.5708 1.5708
@@ -247,7 +244,7 @@ R 12 3.1416 0.0
 R 12 1.5708 1.5708
 MEASURE 12
 
-# --- Z5Z8 (Ancilla 12, reused) ---
+# --- Z5Z8 (Ancilla 12, 2nd use) ---
 RESET 12
 # CNOT(12, 5)
 R 12 1.5708 1.5708

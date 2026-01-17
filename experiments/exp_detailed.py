@@ -33,7 +33,7 @@ from estimator import Estimator
 # ==========================================
 
 # 回路モジュール名（circuits/以下のファイル名、拡張子なし）
-CIRCUIT_MODULE = "baseline_naive_d3"
+CIRCUIT_MODULE = "baseline_aware_d3_ver2"
 
 # コンパイラ設定
 CONFIG = CompilerConfig(
@@ -49,7 +49,7 @@ LIZ_CAPACITY = 4
 MEMORY_CAPACITY = 20
 
 # DAG設定
-STABILIZER_PARALLEL = False
+STABILIZER_PARALLEL = True
 
 
 # ==========================================
@@ -97,6 +97,7 @@ def save_detailed_json(result, estimation, filepath: str, metadata: dict = None)
                 "total_time_us": estimation.total_time,
                 "total_time_ms": estimation.total_time / 1000,
                 "counts": estimation.counts,
+                "breakdown": estimation.breakdown,  # 操作種別ごとの時間（μs）
             }
         },
         "operations": [operation_to_dict(op) for op in result.operations]
@@ -185,18 +186,10 @@ def run_detailed_analysis(circuit_module_name: str):
     
     print(f"\n[Time Estimation]")
     print(f"  Total: {estimation.total_time:.2f} μs = {estimation.total_time/1000:.2f} ms")
-    print(f"\n  Breakdown:")
-    
-    # breakdown を計算
-    total = estimation.total_time
-    for op_type, count in sorted(estimation.counts.items()):
-        # estimatorから時間を取得
-        time_per_op = estimation.total_time / sum(estimation.counts.values()) if sum(estimation.counts.values()) > 0 else 0
-        # 実際の計算はestimator内部で行われているので、countsとtotalから逆算
-        pass
     
     # 詳細なbreakdownを表示
-    print(f"  {'Operation':<12} {'Count':>8} {'Time(μs)':>12} {'Ratio':>8}")
+    total = estimation.total_time
+    print(f"\n  {'Operation':<12} {'Count':>8} {'Time(μs)':>12} {'Ratio':>8}")
     print(f"  {'-'*44}")
     
     for op_type, time in sorted(estimation.breakdown.items(), key=lambda x: -x[1]):
