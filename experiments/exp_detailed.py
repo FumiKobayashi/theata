@@ -33,7 +33,7 @@ from estimator import Estimator
 # ==========================================
 
 # 回路モジュール名（circuits/以下のファイル名、拡張子なし）
-CIRCUIT_MODULE = "baseline_aware_d3_ver2"
+CIRCUIT_MODULE = "exp1_Naive_d3"
 
 # コンパイラ設定
 CONFIG = CompilerConfig(
@@ -86,7 +86,65 @@ def operation_to_dict(op) -> dict:
     return result
 
 
-def save_detailed_json(result, estimation, filepath: str, metadata: dict = None):
+def analyze_swap_patterns(operations) -> dict:
+    """
+    Swap操作の前後にあるSplit/Mergeのパターンを分析する。
+    
+    パターン:
+      - "2-2": Split -> Split -> Swap -> Merge -> Merge
+      - "1-1": Split -> Swap -> Merge
+      - "0-0": Swap のみ（前後にSplit/Mergeなし）
+      - その他: "n-m" 形式で記録
+    
+    Returns:
+        dict: パターンごとのカウントと割合
+    """
+    pattern_counts = {}
+    total_swaps = 0
+    
+    # 操作タイプ名のリストを作成
+    op_types = [type(op).__name__ for op in operations]
+    
+    # 各Swapを検出してパターンを分析
+    for i, op_type in enumerate(op_types):
+        if op_type == "SwapOp":
+            total_swaps += 1
+            
+            # 前方のSplit数をカウント（連続するSplitのみ）
+            splits_before = 0
+            j = i - 1
+            while j >= 0 and op_types[j] == "SplitOp":
+                splits_before += 1
+                j -= 1
+            
+            # 後方のMerge数をカウント（連続するMergeのみ）
+            merges_after = 0
+            j = i + 1
+            while j < len(op_types) and op_types[j] == "MergeOp":
+                merges_after += 1
+                j += 1
+            
+            # パターン名を作成
+            pattern = f"{splits_before}-{merges_after}"
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+    
+    # 結果を整理
+    result = {
+        "total_swaps": total_swaps,
+        "patterns": {},
+    }
+    
+    for pattern, count in sorted(pattern_counts.items()):
+        ratio = count / total_swaps * 100 if total_swaps > 0 else 0
+        result["patterns"][pattern] = {
+            "count": count,
+            "ratio_percent": round(ratio, 2),
+        }
+    
+    return result
+
+
+def save_detailed_json(result, estimation, filepath: str, metadata: dict = None, swap_analysis: dict = None):
     """コンパイル結果をJSONファイルに保存（命令列込み）"""
     output = {
         "metadata": {
@@ -102,6 +160,9 @@ def save_detailed_json(result, estimation, filepath: str, metadata: dict = None)
         },
         "operations": [operation_to_dict(op) for op in result.operations]
     }
+    
+    if swap_analysis:
+        output["metadata"]["swap_pattern_analysis"] = swap_analysis
     
     if metadata:
         output["metadata"].update(metadata)
@@ -197,6 +258,15 @@ def run_detailed_analysis(circuit_module_name: str):
         ratio = time / total * 100 if total > 0 else 0
         print(f"  {op_type:<12} {count:>8} {time:>12.2f} {ratio:>7.1f}%")
     
+    # Swapパターン分析
+    swap_analysis = analyze_swap_patterns(result.operations)
+    
+    print(f"\n[Swap Pattern Analysis]")
+    print(f"  Total swaps: {swap_analysis['total_swaps']}")
+    print(f"  Patterns (splits_before - merges_after):")
+    for pattern, data in sorted(swap_analysis['patterns'].items()):
+        print(f"    {pattern}: {data['count']} ({data['ratio_percent']:.1f}%)")
+    
     # サマリー
     print(f"\n[Summary]")
     print(f"  Input:  {len(program.instructions)} operations")
@@ -223,7 +293,7 @@ def run_detailed_analysis(circuit_module_name: str):
         "stabilizer_parallel": STABILIZER_PARALLEL,
     }
     
-    save_detailed_json(result, estimation, str(output_file), metadata)
+    save_detailed_json(result, estimation, str(output_file), metadata, swap_analysis)
     
     print("\n" + "=" * 70)
     print("Analysis Complete")

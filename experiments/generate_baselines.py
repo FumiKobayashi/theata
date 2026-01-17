@@ -8,7 +8,7 @@ src_dir = current_dir.parent / 'src'
 circuits_dir = current_dir.parent / 'circuits'
 sys.path.insert(0, str(src_dir))
 
-from baseline.stim_gen import NaiveStimGenerator
+from baseline.stim_naive_4step import Naive4StepGenerator
 from baseline.serial_converter import SerialConverter
 
 def write_circuit_py_file(filename, dsl_lines, qubit_count, data_qubits, ancilla_qubits):
@@ -56,7 +56,7 @@ CIRCUIT = """
 
 def main():
     # 1. Generate Naive Stim Circuit
-    gen = NaiveStimGenerator()
+    gen = Naive4StepGenerator()
     stim_circuit = gen.generate_surface17()
     
     # 2. Convert to QCCD DSL Strings
@@ -65,7 +65,7 @@ def main():
     
     # 3. Save as .py file
     write_circuit_py_file(
-        "baseline_naive_d3",
+        "exp1_Naive_d3",
         dsl_lines,
         qubit_count=17,
         data_qubits=gen.data_qubits,
