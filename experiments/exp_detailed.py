@@ -33,7 +33,7 @@ from estimator import Estimator
 # ==========================================
 
 # 回路モジュール名（circuits/以下のファイル名、拡張子なし）
-CIRCUIT_MODULE = "exp1_Naive_d3"
+CIRCUIT_MODULE = "snake_batch_measure"
 
 # コンパイラ設定
 CONFIG = CompilerConfig(
@@ -219,7 +219,7 @@ def run_detailed_analysis(circuit_module_name: str):
     # 初期配置
     initial = {}
     for qid in circuit_module.DATA_QUBITS:
-        initial[qid] = 0
+        initial[8-qid] = 0
     for qid in circuit_module.ANCILLA_QUBITS:
         initial[qid] = 2
     
