@@ -49,7 +49,7 @@ LIZ_CAPACITY = 4
 MEMORY_CAPACITY = 20
 
 # DAG設定
-STABILIZER_PARALLEL = True
+STABILIZER_PARALLEL = False
 
 
 # ==========================================

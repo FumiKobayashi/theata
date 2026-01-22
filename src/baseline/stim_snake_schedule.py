@@ -5,7 +5,7 @@
 (2) スタビライザごとに測定: stim_snake_per_stabilizer.py
 
 巳型実行順序（左上開始）:
-  Z03 → X0134 → Z1245 → X12 → Z3467 → X67 → X4578 → Z58
+  Z03 → X0134 → Z1245 → X12 → Z58 → X4578 → Z3467 → X67
 
 Hook error avoiding順序:
   Xスタビライザ（Z型）: NW→NE→SW→SE
@@ -13,7 +13,7 @@ Hook error avoiding順序:
 
 補助量子ビットID（通過順に割り当て）:
   Z03: 9, X0134: 10, Z1245: 11, X12: 12,
-  Z3467: 13, X67: 14, X4578: 15, Z58: 16
+  Z58: 13, X4578: 14, Z3467: 15, X67: 16
 
 使い方:
     from stim_snake_schedule import SnakeBatchMeasureGenerator, SnakePerStabilizerGenerator
@@ -33,6 +33,7 @@ import stim
 # ==========================================
 
 # (名前, アンシラID, タイプ, データ量子ビット, CNOT順序)
+# 巳型実行順序: Z03 → X0134 → Z1245 → X12 → Z58 → X4578 → Z3467 → X67
 STABILIZERS = [
     # 1. Z03 (weight-2)
     ("Z03", 9, "Z", [0, 3], [0, 3]),
@@ -46,17 +47,17 @@ STABILIZERS = [
     # 4. X12 (weight-2)
     ("X12", 12, "X", [1, 2], [1, 2]),
     
-    # 5. Z3467 (weight-4, 逆N字: NW→SW→NE→SE)
-    ("Z3467", 13, "Z", [3, 4, 6, 7], [3, 6, 4, 7]),
+    # 5. Z58 (weight-2)
+    ("Z58", 13, "Z", [5, 8], [5, 8]),
     
-    # 6. X67 (weight-2)
-    ("X67", 14, "X", [6, 7], [6, 7]),
+    # 6. X4578 (weight-4, Z型: NW→NE→SW→SE)
+    ("X4578", 14, "X", [4, 5, 7, 8], [4, 5, 7, 8]),
     
-    # 7. X4578 (weight-4, Z型: NW→NE→SW→SE)
-    ("X4578", 15, "X", [4, 5, 7, 8], [4, 5, 7, 8]),
+    # 7. Z3467 (weight-4, 逆N字: NW→SW→NE→SE)
+    ("Z3467", 15, "Z", [3, 4, 6, 7], [3, 6, 4, 7]),
     
-    # 8. Z58 (weight-2)
-    ("Z58", 16, "Z", [5, 8], [5, 8]),
+    # 8. X67 (weight-2)
+    ("X67", 16, "X", [6, 7], [6, 7]),
 ]
 
 
@@ -68,7 +69,8 @@ class SnakeBatchMeasureGenerator:
     """
     巳型スケジューリング - 全CNOT後に一斉測定
     
-    全スタビライザのRESET → 全スタビライザのCNOT → 全スタビライザのMEASURE
+    各スタビライザで RESET → CNOT を実行し、最後にまとめてMEASURE
+    （per_stabilizerとの違いは測定タイミングのみ）
     """
     
     def __init__(self, distance=3):
@@ -79,28 +81,28 @@ class SnakeBatchMeasureGenerator:
     def generate_surface17(self) -> stim.Circuit:
         circuit = stim.Circuit()
         
-        # 1. 全アンシラをRESET
-        all_ancillas = [s[1] for s in STABILIZERS]
-        circuit.append("R", all_ancillas)
-        
-        # 2. Xアンシラに Hadamard
-        x_ancillas = [s[1] for s in STABILIZERS if s[2] == "X"]
-        circuit.append("H", x_ancillas)
-        
-        # 3. 各スタビライザのCNOTを順に実行
+        # 各スタビライザで RESET → H(X) → CNOTs → H(X) を実行
         for name, ancilla, stype, data_qubits, cnot_order in STABILIZERS:
+            # RESET
+            circuit.append("R", [ancilla])
+            
+            # Hadamard (X stabilizer)
+            if stype == "X":
+                circuit.append("H", [ancilla])
+            
+            # CNOTs
             for data in cnot_order:
                 if stype == "X":
-                    # X stabilizer: ancilla -> data
                     circuit.append("CX", [ancilla, data])
                 else:
-                    # Z stabilizer: data -> ancilla
                     circuit.append("CX", [data, ancilla])
+            
+            # Hadamard (X stabilizer)
+            if stype == "X":
+                circuit.append("H", [ancilla])
         
-        # 4. Xアンシラに Hadamard
-        circuit.append("H", x_ancillas)
-        
-        # 5. 全アンシラをMEASURE
+        # 最後に全アンシラをまとめてMEASURE
+        all_ancillas = [s[1] for s in STABILIZERS]
         circuit.append("M", all_ancillas)
         
         return circuit
