@@ -23,8 +23,8 @@ class SerialConverter:
                 for t in targets:
                     q = t.value
                     # H = Ry(pi/2) * Rx(pi) のような分解
-                    lines.append(f"R {q} 3.1416 0.0")   # Angle 1
                     lines.append(f"R {q} 1.5708 1.5708") # Angle 2
+                    lines.append(f"R {q} 3.1416 0.0")   # Angle 1
             
             elif name == "CX" or name == "CNOT":
                 # CNOT -> R_c -> MS -> R_c -> R_t -> R_c
