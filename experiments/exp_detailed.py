@@ -33,7 +33,7 @@ from estimator import Estimator
 # ==========================================
 
 # 回路モジュール名（circuits/以下のファイル名、拡張子なし）
-CIRCUIT_MODULE = "snake_batch_measure"
+CIRCUIT_MODULE = "snake_per_stabilizer"
 
 # コンパイラ設定
 CONFIG = CompilerConfig(

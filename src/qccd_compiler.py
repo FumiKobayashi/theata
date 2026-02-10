@@ -1147,7 +1147,7 @@ class QCCDCompiler:
                     evict_zone = 2 if ion >= 9 else 0
                     to_right = evict_zone > liz_id
                     self._swap_to_edge(ion, state, operations, to_right=to_right)
-                    loc = Location(trap=evict_zone, site=0)
+                    loc = self._make_shuttle_location(state, ion, evict_zone)
                     evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(evict_zone, [])))
                     operations.append(evict_op)
                     state.move_ion(ion, evict_zone)
@@ -1158,7 +1158,7 @@ class QCCDCompiler:
                     src_zone = state.locate(target_id)
                     to_right = liz_id > src_zone
                     self._swap_to_edge(target_id, state, operations, to_right=to_right)
-                    loc = Location(trap=liz_id, site=0)
+                    loc = self._make_shuttle_location(state, target_id, liz_id)
                     shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
                     operations.append(shuttle_op)
                     state.move_ion(target_id, liz_id)
@@ -1202,7 +1202,7 @@ class QCCDCompiler:
                     evict_zone = 2 if ion >= 9 else 0
                     to_right = evict_zone > liz_id
                     self._swap_to_edge(ion, state, operations, to_right=to_right)
-                    loc = Location(trap=evict_zone, site=0)
+                    loc = self._make_shuttle_location(state, ion, evict_zone)
                     evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(evict_zone, [])))
                     operations.append(evict_op)
                     state.move_ion(ion, evict_zone)
@@ -1213,7 +1213,7 @@ class QCCDCompiler:
                     src_zone = state.locate(target_id)
                     to_right = liz_id > src_zone
                     self._swap_to_edge(target_id, state, operations, to_right=to_right)
-                    loc = Location(trap=liz_id, site=0)
+                    loc = self._make_shuttle_location(state, target_id, liz_id)
                     shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
                     operations.append(shuttle_op)
                     state.move_ion(target_id, liz_id)
@@ -1282,7 +1282,7 @@ class QCCDCompiler:
                 evict_ion = liz_contents[0]
                 nearest_memory = self.architecture.find_nearest_memory(liz_id)
                 if nearest_memory is not None:
-                    loc = Location(trap=nearest_memory, site=0)
+                    loc = self._make_shuttle_location(state, evict_ion, nearest_memory)
                     evict_op = ShuttleOp(target=evict_ion, dst=loc, dst_chain_length=len(state.zone_contents.get(nearest_memory, [])))
                     movement_ops.append((evict_op, "out"))
                     state.move_ion(evict_ion, nearest_memory)
@@ -1290,7 +1290,7 @@ class QCCDCompiler:
             
             # ターゲットをLIZに移動
             src_zone = state.locate(target_id)
-            loc = Location(trap=liz_id, site=0)
+            loc = self._make_shuttle_location(state, target_id, liz_id)
             shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
             movement_ops.append((shuttle_op, "in"))
             state.move_ion(target_id, liz_id)
@@ -1301,7 +1301,7 @@ class QCCDCompiler:
             if ion != target_id:
                 nearest_memory = self.architecture.find_nearest_memory(liz_id)
                 if nearest_memory is not None:
-                    loc = Location(trap=nearest_memory, site=0)
+                    loc = self._make_shuttle_location(state, ion, nearest_memory)
                     evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(nearest_memory, [])))
                     movement_ops.append((evict_op, "out"))
                     state.move_ion(ion, nearest_memory)
@@ -1440,7 +1440,7 @@ class QCCDCompiler:
                     
                     # SHUTTLE操作を追加
                     movement_ops.append((
-                        ShuttleOp(target=ion_id, dst=Location(trap=target_liz_id, site=0)),
+                        ShuttleOp(target=ion_id, dst=self._make_shuttle_location(state, ion_id, target_liz_id)),
                         "in"
                     ))
                     # SHUTTLE操作を状態に反映
@@ -1484,7 +1484,7 @@ class QCCDCompiler:
             
             # SHUTTLE操作を追加
             eviction_ops.append((
-                ShuttleOp(target=ion_id, dst=Location(trap=evict_dst, site=0)),
+                ShuttleOp(target=ion_id, dst=self._make_shuttle_location(state, ion_id, evict_dst)),
                 "out"
             ))
             # 状態を更新
@@ -1540,13 +1540,32 @@ class QCCDCompiler:
             
             # SHUTTLE操作を追加
             eviction_ops.append((
-                ShuttleOp(target=ion_to_evict, dst=Location(trap=evict_dst, site=0)),
+                ShuttleOp(target=ion_to_evict, dst=self._make_shuttle_location(state, ion_to_evict, evict_dst)),
                 "out"
             ))
             # SHUTTLE操作を状態に反映
             state.move_ion(ion_to_evict, evict_dst)
         
         return eviction_ops
+    
+    def _make_shuttle_location(self, state: QCCDState, ion_id: int, dst_zone_id: int) -> Location:
+        """
+        シャトル方向に基づいて、宛先ゾーン内の到着位置(site)を計算してLocationを生成
+        
+        物理的な制約:
+        - 右方向（src < dst）: イオンは左端に入る → site=0
+        - 左方向（src > dst）: イオンは右端に入る → site=現在のゾーン内イオン数
+        
+        これはstate.move_ion()の挿入ロジックと一致する。
+        """
+        src_zone_id = state.locate(ion_id)
+        if src_zone_id < dst_zone_id:
+            # 右方向: 左端に入る
+            site = 0
+        else:
+            # 左方向: 右端に入る
+            site = len(state.zone_contents.get(dst_zone_id, []))
+        return Location(trap=dst_zone_id, site=site)
     
     def _generate_swap_ops_for_shuttle(
         self,
