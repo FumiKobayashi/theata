@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Set, Optional
+from typing import List, Set
 
 # ==========================================
 # 基本型
@@ -75,25 +75,25 @@ class SwapOp(Operation):
 @dataclass
 class SplitOp(Operation):
     """
-    スプリット操作: イオンチェーンを分割
+    スプリット操作: イオンチェーンを分割し、片方をdst_zone_idへ移す
     
     指定したイオンが右端になる位置でチェーンを分割する。
+    分割されたチェーンのうち、dst_zone_id側がdst_zone_idへ移動する。
     
-    inheritパラメータでどちらのゾーンが元のIDを継承するか指定:
-    - "left": 左側が元のzone_id、右側がright_zone_id（デフォルト）
-    - "right": 右側が元のzone_id、左側がright_zone_id
+    方向の決定（ゾーンIDの大小関係から自動推論）:
+    - dst_zone_id > 元のゾーン → 右側チェーンがdstへ
+    - dst_zone_id < 元のゾーン → 左側チェーンがdstへ
     
-    ion_id=None の場合、全イオンを右側のゾーンへ渡す（左側は空になる）。
+    ゾーンに1イオンのみの場合、そのイオンをdstへ移動する。
     
-    例1: Zone0: [A, B, C, D] で Split(ion_id=B, right_zone_id=3, inherit="left")
-        → Zone0: [A, B], Zone3: [C, D]  （左が元ID）
+    例1: Zone1: [A, B, C, D] で Split(ion_id=B, dst_zone_id=2)
+        → Zone1: [A, B], Zone2: [C, D]  (dst=2 > src=1 → 右チェーンがdstへ)
     
-    例2: Zone0: [A, B, C, D] で Split(ion_id=B, right_zone_id=3, inherit="right")
-        → Zone3: [A, B], Zone0: [C, D]  （右が元ID）
+    例2: Zone1: [A, B, C, D] で Split(ion_id=B, dst_zone_id=0)
+        → Zone0: [A, B], Zone1: [C, D]  (dst=0 < src=1 → 左チェーンがdstへ)
     """
-    ion_id: Optional[int]   # このイオンが右端になる位置で分割。Noneなら全部右へ
-    right_zone_id: int      # 新しく付与するzone_id
-    inherit: str = "left"   # "left" or "right" - どちらが元のIDを継承するか
+    ion_id: int             # このイオンが右端になる位置で分割
+    dst_zone_id: int        # 分割されたチェーンの移動先
     type: str = "SPLIT"
 
 
@@ -102,19 +102,18 @@ class MergeOp(Operation):
     """
     マージ操作: 2つの隣接イオンチェーンを結合
     
-    inheritパラメータでどちらのゾーンIDを継承するか指定:
-    - "left": 左側のゾーンIDが継承される（デフォルト）
-    - "right": 右側のゾーンIDが継承される
+    結合順序は物理配置に従い、左側のイオンが常に前になる。
+    結果はMemory/LIZゾーン側に保存され、Temp Zoneは空になる。
+    （どちらが保存先かはゾーンタイプから自動決定される）
     
-    例: Zone0: [A, B], Zone1: [C, D] で Merge(zone_left=0, zone_right=1, inherit="left")
-        → Zone0: [A, B, C, D]  (Zone1は消滅)
+    例: Zone2(T): [C], Zone3(L): [D] で Merge(zone_left=2, zone_right=3)
+        → Zone3: [C, D], Zone2: []  (LIZ側に保存)
     
-    例: Zone0: [A, B], Zone1: [C, D] で Merge(zone_left=0, zone_right=1, inherit="right")
-        → Zone1: [A, B, C, D]  (Zone0は消滅)
+    例: Zone0(T): [A], Zone1(M): [B,C] で Merge(zone_left=0, zone_right=1)
+        → Zone1: [A, B, C], Zone0: []  (Memory側に保存)
     """
     zone_left: int       # 左側のゾーン
     zone_right: int      # 右側のゾーン
-    inherit: str = "left"  # "left" or "right" - どちらのIDを継承するか
     type: str = "MERGE"
 
 

@@ -120,7 +120,7 @@ class CompilerConfig:
 class Zone:
     """ゾーンの定義"""
     id: int
-    zone_type: str      # "L" (LIZ) or "M" (Memory)
+    zone_type: str      # "L" (LIZ), "M" (Memory), or "T" (Temporary)
     capacity: int       # 最大イオン数
     position: int       # 1D配置での位置 (リストのインデックス)
 
@@ -129,27 +129,32 @@ class QCCDArchitecture:
     """
     1D QCCDアーキテクチャの構成定義
     
+    物理的な電極配置に基づく7ゾーン構成:
+      T(20) - M(20) - T(20) - L(4) - T(20) - M(20) - T(20)
+    
     入力形式: [(type, capacity), ...]
-      - type: "M" (Memory) or "L" (LIZ)
+      - type: "M" (Memory), "L" (LIZ), or "T" (Temporary)
       - capacity: そのゾーンの最大イオン数
       - 位置はリストのインデックスで自動決定
       - 隣接関係は index ± 1 で自動決定
     
-    例:
-      QCCDArchitecture([("M", 15), ("L", 2), ("L", 2), ("M", 15)])
-      → Memory - LIZ - LIZ - Memory の4ゾーン構成
+    Temporary Zoneの制約:
+      - Split/Merge操作の一時置き場として使用
+      - 使用前は常に空であること（不変条件）
+      - 初期配置には使用しない
+      - Swapは実行不可
     """
     
     def __init__(self, zone_specs: List[Tuple[str, int]]):
         """
         Args:
             zone_specs: [(type, capacity), ...] のリスト
-                       type は "M" (Memory) or "L" (LIZ)
+                       type は "M" (Memory), "L" (LIZ), or "T" (Temporary)
         """
         self.zones: List[Zone] = []
         for i, (zone_type, capacity) in enumerate(zone_specs):
-            if zone_type not in ("M", "L"):
-                raise ValueError(f"Invalid zone type '{zone_type}'. Must be 'M' or 'L'.")
+            if zone_type not in ("M", "L", "T"):
+                raise ValueError(f"Invalid zone type '{zone_type}'. Must be 'M', 'L', or 'T'.")
             self.zones.append(Zone(
                 id=i,
                 zone_type=zone_type,
@@ -160,6 +165,7 @@ class QCCDArchitecture:
         self._zone_by_id: Dict[int, Zone] = {z.id: z for z in self.zones}
         self._liz_zones: List[Zone] = [z for z in self.zones if z.zone_type == "L"]
         self._memory_zones: List[Zone] = [z for z in self.zones if z.zone_type == "M"]
+        self._temp_zones: List[Zone] = [z for z in self.zones if z.zone_type == "T"]
         
         if not self._liz_zones:
             raise ValueError("Architecture must have at least one LIZ")
@@ -175,6 +181,10 @@ class QCCDArchitecture:
         """全Memoryゾーンを取得"""
         return self._memory_zones
     
+    def get_temp_zones(self) -> List[Zone]:
+        """全Temporaryゾーンを取得"""
+        return self._temp_zones
+    
     def get_adjacent_zones(self, zone_id: int) -> List[int]:
         """隣接するゾーンIDのリストを取得（1Dなので最大2つ）"""
         adjacent = []
@@ -189,9 +199,62 @@ class QCCDArchitecture:
         zone = self.get_zone(zone_id)
         return zone is not None and zone.zone_type == "L"
     
+    def is_temp(self, zone_id: int) -> bool:
+        """指定ゾーンがTemporaryかどうか"""
+        zone = self.get_zone(zone_id)
+        return zone is not None and zone.zone_type == "T"
+    
+    def is_memory(self, zone_id: int) -> bool:
+        """指定ゾーンがMemoryかどうか"""
+        zone = self.get_zone(zone_id)
+        return zone is not None and zone.zone_type == "M"
+    
+    def get_adjacent_temp(self, zone_id: int, direction: str) -> Optional[int]:
+        """
+        指定ゾーンの左("left")または右("right")の隣接Temporaryゾーンを取得
+        
+        Args:
+            zone_id: 基準ゾーン
+            direction: "left" or "right"
+        
+        Returns:
+            隣接Tempゾーンのid。存在しない場合はNone
+        
+        例: T(0)-M(1)-T(2)-L(3)-T(4)-M(5)-T(6)
+            get_adjacent_temp(1, "left")  → 0
+            get_adjacent_temp(1, "right") → 2
+            get_adjacent_temp(3, "left")  → 2
+        """
+        if direction == "left":
+            adj_id = zone_id - 1
+        elif direction == "right":
+            adj_id = zone_id + 1
+        else:
+            raise ValueError(f"Invalid direction '{direction}'. Must be 'left' or 'right'.")
+        
+        if adj_id < 0 or adj_id >= len(self.zones):
+            return None
+        
+        if self.zones[adj_id].zone_type == "T":
+            return adj_id
+        return None
+    
+    def get_path(self, src_zone: int, dst_zone: int) -> List[int]:
+        """
+        srcからdstへの経路（通過するゾーンIDのリスト、両端含む）を返す
+        1D配置なので単純に連番
+        
+        例: get_path(1, 3) → [1, 2, 3]
+            get_path(5, 3) → [5, 4, 3]
+        """
+        if src_zone <= dst_zone:
+            return list(range(src_zone, dst_zone + 1))
+        else:
+            return list(range(src_zone, dst_zone - 1, -1))
+    
     def find_nearest_memory(self, zone_id: int) -> Optional[int]:
         """指定ゾーンから最も近いMemoryゾーンを探す"""
-        # BFS で探索
+        # BFS で探索（Tempゾーンを通過する）
         visited = {zone_id}
         queue = [zone_id]
         
@@ -213,14 +276,18 @@ class QCCDArchitecture:
         return f"QCCDArchitecture([{layout}])"
     
     @classmethod
-    def simple_mlm(cls, liz_capacity: int = 4, memory_capacity: int = 15):
-        """シンプルな Memory-LIZ-Memory 構成"""
-        return cls([("M", memory_capacity), ("L", liz_capacity), ("M", memory_capacity)])
-    
-    @classmethod
-    def dual_liz(cls, liz_capacity: int = 2, memory_capacity: int = 15):
-        """Memory-LIZ-LIZ-Memory 構成"""
-        return cls([("M", memory_capacity), ("L", liz_capacity), ("L", liz_capacity), ("M", memory_capacity)])
+    def simple_mlm(cls, liz_capacity: int = 4, memory_capacity: int = 20,
+                   temp_capacity: int = 20):
+        """T-M-T-L-T-M-T 構成（物理的な電極配置に基づく7ゾーン）"""
+        return cls([
+            ("T", temp_capacity),    # Zone 0
+            ("M", memory_capacity),  # Zone 1
+            ("T", temp_capacity),    # Zone 2
+            ("L", liz_capacity),     # Zone 3
+            ("T", temp_capacity),    # Zone 4
+            ("M", memory_capacity),  # Zone 5
+            ("T", temp_capacity),    # Zone 6
+        ])
 
 
 # ==========================================
@@ -230,9 +297,15 @@ class QCCDArchitecture:
 @dataclass
 class QCCDState:
     """
-    QCCDの実行時状態
+    QCCDの実行時状態（7ゾーン対応: T-M-T-L-T-M-T）
     
     イオンの位置を追跡し、ゲート実行可能性を判定
+    
+    不変条件:
+    - Temporary Zoneは操作前後で空であること
+    - move_ionは隣接ゾーン間のみ
+    - 初期配置はMemory Zoneのみ
+    - SwapはTemporary Zoneでは実行不可
     """
     architecture: QCCDArchitecture
     ion_locations: Dict[int, int] = field(default_factory=dict)  # ion_id -> zone_id
@@ -243,27 +316,21 @@ class QCCDState:
         for zone in self.architecture.zones:
             if zone.id not in self.zone_contents:
                 self.zone_contents[zone.id] = []
-        
-        # Split/Mergeカウンター（ゾーンIDリセット用）
-        self.split_count = 0
-        self.merge_count = 0
-        
-        # 一時ゾーンIDカウンター
-        self.temp_zone_counter = 0
-        
-        # 初期ゾーン構成を記録（リセット時に使用）
-        self.initial_zone_ids = [zone.id for zone in self.architecture.zones]
-    
-    def allocate_temp_zone(self) -> int:
-        """一時ゾーンIDを割り当て（負の数を使用）"""
-        self.temp_zone_counter += 1
-        return -self.temp_zone_counter
     
     def place_ion(self, ion_id: int, zone_id: int):
-        """イオンを指定ゾーンに配置（初期配置用）"""
+        """
+        イオンを指定ゾーンに配置（初期配置用）
+        
+        制約: Memory Zoneのみ配置可能
+        """
         zone = self.architecture.get_zone(zone_id)
         if zone is None:
             raise ValueError(f"Zone {zone_id} does not exist")
+        if zone.zone_type != "M":
+            raise ValueError(
+                f"Initial placement only allowed in Memory zones. "
+                f"Zone {zone_id} is type '{zone.zone_type}'."
+            )
         if len(self.zone_contents[zone_id]) >= zone.capacity:
             raise ValueError(f"Zone {zone_id} is at capacity")
         
@@ -348,35 +415,50 @@ class QCCDState:
     
     def find_eviction_destination(self, from_zone_id: int) -> Optional[int]:
         """
-        退避先のMemoryゾーンを探す
-        from_zone_id に隣接するMemoryゾーンで空きがあるものを優先
+        退避先のMemoryゾーンを探す（Tempゾーンは対象外）
+        from_zone_id に近いMemoryゾーンで空きがあるものを優先
         """
-        # 隣接ゾーンを優先
-        for adj_id in self.architecture.get_adjacent_zones(from_zone_id):
-            zone = self.architecture.get_zone(adj_id)
-            if zone and zone.zone_type == "M" and self.get_zone_free_space(adj_id) > 0:
-                return adj_id
+        # 最寄りのMemoryを探す（BFSでTempを通過）
+        visited = {from_zone_id}
+        queue = [from_zone_id]
         
-        # 隣接になければ最寄りのMemoryを探す
-        nearest = self.architecture.find_nearest_memory(from_zone_id)
-        if nearest and self.get_zone_free_space(nearest) > 0:
-            return nearest
+        while queue:
+            current = queue.pop(0)
+            zone = self.architecture.get_zone(current)
+            if zone and zone.zone_type == "M" and self.get_zone_free_space(current) > 0:
+                return current
+            
+            for adj in self.architecture.get_adjacent_zones(current):
+                if adj not in visited:
+                    visited.add(adj)
+                    queue.append(adj)
         
         return None
     
     def move_ion(self, ion_id: int, dst_zone_id: int):
         """
-        イオンを移動（状態を更新）
+        イオンを隣接ゾーンへ移動（状態を更新）
+        
+        制約: 隣接ゾーン間のみ（|src - dst| == 1）
         
         シャトル方向によって挿入位置が決まる:
-        - 右方向（src < dst）: 左端から出て、左端に入る → insert(0)
-        - 左方向（src > dst）: 右端から出て、右端に入る → append
+        - 右方向（src < dst）: 左端に入る → insert(0)
+        - 左方向（src > dst）: 右端に入る → append
         """
         src_zone_id = self.locate(ion_id)
         dst_zone = self.architecture.get_zone(dst_zone_id)
         
         if dst_zone is None:
             raise ValueError(f"Destination zone {dst_zone_id} does not exist")
+        
+        # 隣接チェック
+        if abs(src_zone_id - dst_zone_id) != 1:
+            raise ValueError(
+                f"move_ion only allows adjacent zones. "
+                f"src={src_zone_id}, dst={dst_zone_id} (distance={abs(src_zone_id - dst_zone_id)}). "
+                f"Use transfer_ion for multi-hop moves."
+            )
+        
         if len(self.zone_contents[dst_zone_id]) >= dst_zone.capacity:
             raise ValueError(f"Destination zone {dst_zone_id} is at capacity")
         
@@ -393,6 +475,23 @@ class QCCDState:
         
         self.ion_locations[ion_id] = dst_zone_id
     
+    def transfer_ion(self, ion_id: int, dst_zone_id: int):
+        """
+        イオンを任意のゾーンへ移動（長距離対応）
+        
+        内部で隣接move_ionを繰り返し呼び出す。
+        Compiler が ShuttleOp 生成時に状態を更新するために使用。
+        （OperationExpander レベルでは move_ion を直接使用）
+        """
+        src_zone_id = self.locate(ion_id)
+        if src_zone_id == dst_zone_id:
+            return
+        
+        path = self.architecture.get_path(src_zone_id, dst_zone_id)
+        # path[0] は src なのでスキップ
+        for next_zone in path[1:]:
+            self.move_ion(ion_id, next_zone)
+    
     def get_ion_position_in_zone(self, ion_id: int) -> int:
         """ゾーン内でのイオンの位置（インデックス）を取得"""
         zone_id = self.locate(ion_id)
@@ -402,13 +501,22 @@ class QCCDState:
         """
         同一ゾーン内の隣接する2つのイオンの位置を交換（状態を更新）
         
-        制約: 隣接イオン同士のみSWAP可能
+        制約:
+        - 隣接イオン同士のみSWAP可能
+        - Temporary Zoneでは実行不可
         """
         zone_a = self.locate(ion_a)
         zone_b = self.locate(ion_b)
         
         if zone_a != zone_b:
             raise ValueError(f"Cannot swap ions in different zones: {ion_a} in {zone_a}, {ion_b} in {zone_b}")
+        
+        # Temp Zone チェック
+        if self.architecture.is_temp(zone_a):
+            raise ValueError(
+                f"Cannot swap ions in Temporary zone {zone_a}. "
+                f"Swap is only allowed in Memory and LIZ zones."
+            )
         
         contents = self.zone_contents[zone_a]
         pos_a = contents.index(ion_a)
@@ -439,167 +547,106 @@ class QCCDState:
             return None
         return contents[0] if left else contents[-1]
     
-    def split_chain(self, ion_id: Optional[int], new_zone_id: int, source_zone_id: Optional[int] = None, inherit: str = "left"):
+    def validate_temp_empty(self, temp_zone_id: int):
+        """Temp Zoneが空であることを検証（不変条件チェック）"""
+        if not self.architecture.is_temp(temp_zone_id):
+            raise ValueError(f"Zone {temp_zone_id} is not a Temporary zone")
+        contents = self.zone_contents.get(temp_zone_id, [])
+        if contents:
+            raise RuntimeError(
+                f"Invariant violation: Temp zone {temp_zone_id} should be empty "
+                f"but contains {contents}"
+            )
+    
+    def split_chain(self, ion_id: int, dst_zone_id: int):
         """
-        イオンチェーンを分割（指定イオンが右端になる位置で）
+        イオンチェーンを分割し、片方をdst_zone_idへ移す
+        
+        方向はdst_zone_idとソースゾーンの位置関係から自動決定:
+        - dst_zone_id > source → 右側チェーンがdstへ
+        - dst_zone_id < source → 左側チェーンがdstへ
+        
+        特殊ケース: ゾーンに1イオンのみの場合、そのイオンをdstへ移動
+        （物理的にはSplit操作でイオンをゾーンから分離する）
         
         Args:
-            ion_id: このイオンが右端になる位置で分割。Noneなら全イオンを右側へ
-            new_zone_id: 新しく付与するzone_id
-            source_zone_id: 分割元のゾーンID（ion_id=Noneの場合は必須）
-            inherit: "left" or "right" - どちらが元のIDを継承するか
-                    "left": 左側が元ID、右側がnew_zone_id（デフォルト）
-                    "right": 右側が元ID、左側がnew_zone_id
+            ion_id: このイオンが右端になる位置で分割
+            dst_zone_id: 分割されたチェーンの移動先（Temporary Zone）
         """
-        # カウンターをインクリメント
-        self.split_count += 1
+        zone_id = self.locate(ion_id)
+        contents = self.zone_contents[zone_id]
+        pos = contents.index(ion_id)
         
-        if ion_id is None:
-            # 全イオンを右側へ渡す
-            if source_zone_id is None:
-                raise ValueError("source_zone_id is required when ion_id is None")
-            zone_id = source_zone_id
-            contents = self.zone_contents[zone_id]
-            
-            if inherit == "left":
-                # 左側（空）が元ID、右側がnew_zone_id
-                self.zone_contents[new_zone_id] = contents
-                self.zone_contents[zone_id] = []
-                for ion in contents:
-                    self.ion_locations[ion] = new_zone_id
-            else:
-                # 右側（空）が元ID、左側がnew_zone_id
-                # これは意味がないが、一応対応
-                self.zone_contents[new_zone_id] = contents
-                self.zone_contents[zone_id] = []
-                for ion in contents:
-                    self.ion_locations[ion] = new_zone_id
+        # 1イオンのみの場合: そのままdstへ移動
+        if len(contents) == 1:
+            self.zone_contents[dst_zone_id] = [ion_id]
+            self.zone_contents[zone_id] = []
+            self.ion_locations[ion_id] = dst_zone_id
+            return
+        
+        # 方向を決定
+        move_right = dst_zone_id > zone_id
+        
+        left_contents = contents[:pos + 1]
+        right_contents = contents[pos + 1:]
+        
+        if move_right:
+            # 右チェーンがdstへ
+            if not right_contents:
+                raise ValueError(
+                    f"Cannot split: no right chain to move to dst. "
+                    f"ion {ion_id} is at right edge of zone {zone_id}"
+                )
+            self.zone_contents[zone_id] = left_contents
+            self.zone_contents[dst_zone_id] = right_contents
+            for ion in right_contents:
+                self.ion_locations[ion] = dst_zone_id
         else:
-            zone_id = self.locate(ion_id)
-            contents = self.zone_contents[zone_id]
-            pos = contents.index(ion_id)
-            
-            # 分割位置の右側にイオンがない場合（src=1のケース）
-            if pos == len(contents) - 1:
-                if inherit == "right":
-                    # 右側（空）が元ID、左側（全体）がnew_zone_id
-                    # これにより src_zone=[], new_zone=[ion_id] となる
-                    self.zone_contents[new_zone_id] = contents.copy()
-                    self.zone_contents[zone_id] = []
-                    for ion in contents:
-                        self.ion_locations[ion] = new_zone_id
-                    return
-                else:
-                    raise ValueError(f"Cannot split: ion {ion_id} is already at right edge with inherit='left'")
-            
-            # 分割
-            left_contents = contents[:pos + 1]
-            right_contents = contents[pos + 1:]
-            
-            if inherit == "left":
-                # 左側が元ID、右側がnew_zone_id
-                self.zone_contents[zone_id] = left_contents
-                self.zone_contents[new_zone_id] = right_contents
-                for ion in right_contents:
-                    self.ion_locations[ion] = new_zone_id
-            else:
-                # 右側が元ID、左側がnew_zone_id
-                self.zone_contents[zone_id] = right_contents
-                self.zone_contents[new_zone_id] = left_contents
-                for ion in left_contents:
-                    self.ion_locations[ion] = new_zone_id
+            # 左チェーンがdstへ
+            self.zone_contents[zone_id] = right_contents
+            self.zone_contents[dst_zone_id] = left_contents
+            for ion in left_contents:
+                self.ion_locations[ion] = dst_zone_id
     
-    def split_chain_with_inherit(self, ion_id: Optional[int], new_zone_id: int, inherit: str = "left"):
+    def merge_chains(self, zone_left: int, zone_right: int):
         """
-        split_chainのエイリアス（inherit指定を明示する場合用）
-        """
-        self.split_chain(ion_id, new_zone_id, inherit=inherit)
-    
-    def merge_chains(self, zone_left: int, zone_right: int, inherit: str = "left"):
-        """
-        2つのイオンチェーンを結合
+        2つの隣接イオンチェーンを結合
+        
+        結合順序は物理配置に従い、左側が常に前になる。
+        結果はMemory/LIZゾーン側に保存され、Temp Zoneは空になる。
         
         Args:
             zone_left: 左側のゾーン
             zone_right: 右側のゾーン
-            inherit: "left" or "right" - どちらのIDが継承されるか
-        
-        結果: left_contents + right_contents の順序で結合
-              inheritで指定されたゾーンIDが結果として残る
         """
         left_contents = self.zone_contents.get(zone_left, [])
         right_contents = self.zone_contents.get(zone_right, [])
-        
-        # 結合（順序は常に左+右）
         merged = left_contents + right_contents
         
-        # 継承先のゾーンIDを決定
-        if inherit == "left":
-            result_zone = zone_left
-            other_zone = zone_right
-        else:
+        # どちらがTemp Zoneかを判定し、非Temp側に保存
+        left_is_temp = self.architecture.is_temp(zone_left)
+        right_is_temp = self.architecture.is_temp(zone_right)
+        
+        if left_is_temp and not right_is_temp:
+            # 左がTemp → 右(M/L)に保存
             result_zone = zone_right
-            other_zone = zone_left
+            empty_zone = zone_left
+        elif right_is_temp and not left_is_temp:
+            # 右がTemp → 左(M/L)に保存
+            result_zone = zone_left
+            empty_zone = zone_right
+        else:
+            # 両方Tempまたは両方非Temp（想定外だがフォールバック: 左に保存）
+            result_zone = zone_left
+            empty_zone = zone_right
         
         # 状態を更新
         self.zone_contents[result_zone] = merged
-        self.zone_contents[other_zone] = []
+        self.zone_contents[empty_zone] = []
         
         # ion_locationsを更新
         for ion in merged:
             self.ion_locations[ion] = result_zone
-        
-        # カウンターをインクリメント
-        self.merge_count += 1
-        
-        # Split数 == Merge数 → 初期ゾーン構成に戻った
-        # 一時ゾーンIDカウンターをリセット（次のサイクルは-1から開始）
-        if self.split_count == self.merge_count:
-            self.temp_zone_counter = 0
-            self.temp_zone_counter = 0
-    
-    def _reset_zone_ids_to_initial(self):
-        """
-        ゾーンIDを初期状態(0, 1, 2)にリセット
-        
-        Split数 == Merge数 になった時点で、ゾーン数は初期状態と同じはず。
-        ゾーンの物理的な並び（左→右）に基づいて、初期IDを再割り当てする。
-        """
-        # 現在存在する非空ゾーンを取得（空ゾーンも含む）
-        current_zones = {}
-        for zone_id, contents in self.zone_contents.items():
-            if contents or zone_id in self.initial_zone_ids:
-                current_zones[zone_id] = contents
-        
-        # 初期ゾーンID（0, 1, 2）で再マッピング
-        # 物理位置に基づいてソート: 負のIDは一時ゾーンなので、
-        # 実際には非空ゾーンを左から順に割り当てる
-        non_empty_zones = [(zid, contents) for zid, contents in current_zones.items() if contents]
-        
-        if len(non_empty_zones) != len(self.initial_zone_ids):
-            # ゾーン数が一致しない場合はスキップ（安全のため）
-            return
-        
-        # 新しいマッピングを作成
-        new_zone_contents = {}
-        new_ion_locations = {}
-        
-        for new_id, (old_id, contents) in zip(self.initial_zone_ids, non_empty_zones):
-            new_zone_contents[new_id] = contents
-            for ion in contents:
-                new_ion_locations[ion] = new_id
-        
-        # 空ゾーンも初期化
-        for zone_id in self.initial_zone_ids:
-            if zone_id not in new_zone_contents:
-                new_zone_contents[zone_id] = []
-        
-        # 状態を更新
-        self.zone_contents = new_zone_contents
-        self.ion_locations = new_ion_locations
-        
-        # 一時ゾーンIDカウンターもリセット
-        self.temp_zone_counter = 0
 
 
 
@@ -609,14 +656,14 @@ class QCCDState:
 
 class OperationExpander:
     """
-    高レベル操作を低レベル操作に展開
+    高レベル操作を低レベル操作に展開（7ゾーン対応）
     
-    SwapOp → Split + Swap + Merge
-    ShuttleOp → Split + Shuttle + Merge
+    SwapOp → Split + Swap + Merge（Swapは元のM/Lゾーン内で実行、Tempでは不可）
+    ShuttleOp → Split + Shuttle + Merge（物理Temp Zoneを経由）
     """
     
     def __init__(self):
-        pass  # temp_zone_counterはQCCDStateが管理
+        pass
     
     def expand(
         self, 
@@ -650,11 +697,9 @@ class OperationExpander:
                 
                 if zone_a != zone_b:
                     # 異なるゾーンにいる場合、スキップ
-                    # compile時に状態更新済みだが、物理的には実行されない
                     continue
                 
-                # 同じゾーンにいる場合、常にSplit + Swap + Mergeで展開
-                # （物理的にSwapは2イオンのチェインでのみ実行可能）
+                # 同じゾーンにいる場合、Split + Swap + Mergeで展開
                 expanded.extend(self._expand_swap(op, state))
             elif isinstance(op, ShuttleOp):
                 expanded.extend(self._expand_shuttle(op, state))
@@ -662,22 +707,24 @@ class OperationExpander:
                 expanded.append(op)
         
         return expanded
-        
-        return expanded
     
     def _expand_swap(self, swap_op: SwapOp, state: QCCDState) -> List[Operation]:
         """
-        SwapOpを展開
+        SwapOpを展開（7ゾーン対応）
+        
+        Swapは元のM/Lゾーン内で実行し、Temp Zoneでは実行しない。
+        不要なイオンを隣接Temp Zoneに退避させて2イオンに絞る。
         
         パターン:
         1. 2イオンのみ: Swap のみ
-        2. 左端ペア: Split + Swap + Merge (1回)
-        3. 右端ペア: Split + Swap + Merge (1回)
-        4. 中間ペア: Split + Split + Swap + Merge + Merge (2回)
+        2. 左端ペア [A,B,...]: 右チェインを右Tempへ退避
+        3. 右端ペア [...,C,D]: 左チェインを左Tempへ退避
+        4. 中間ペア [A,B,C,D]: 左を左Temp、右を右Tempへ退避
         """
         ion_a, ion_b = swap_op.targets
         zone_id = state.locate(ion_a)
         contents = state.zone_contents[zone_id]
+        arch = state.architecture
         
         pos_a = contents.index(ion_a)
         pos_b = contents.index(ion_b)
@@ -687,178 +734,153 @@ class OperationExpander:
         left_ion = contents[left_pos]
         right_ion = contents[right_pos]
         
+        # 隣接Tempゾーンを取得
+        left_temp = arch.get_adjacent_temp(zone_id, "left")
+        right_temp = arch.get_adjacent_temp(zone_id, "right")
+        
         ops: List[Operation] = []
         
         if len(contents) == 2:
-            # パターン1: 2イオンのみ
+            # パターン1: 2イオンのみ → そのままSwap
             ops.append(SwapOp(targets=[left_ion, right_ion]))
             state.swap_ions(left_ion, right_ion)
             
         elif left_pos == 0:
             # パターン2: 左端ペア [A, B, C, D] の Swap(A, B)
-            # Split(B) → [A, B] | [C, D]
-            temp = state.allocate_temp_zone()
-            ops.append(SplitOp(ion_id=right_ion, right_zone_id=temp))
-            state.split_chain(right_ion, temp)
+            # 右チェイン[C,D]を右Tempへ退避、zone_idでSwap
+            assert right_temp is not None, f"No right temp zone for zone {zone_id}"
             
-            # Swap
+            # Split(B) → zone_id: [A, B], right_temp: [C, D]
+            ops.append(SplitOp(ion_id=right_ion, dst_zone_id=right_temp))
+            state.split_chain(right_ion, right_temp)
+            
+            # Swap in zone_id (M/L zone)
             ops.append(SwapOp(targets=[left_ion, right_ion]))
             state.swap_ions(left_ion, right_ion)
             
-            # Merge
-            ops.append(MergeOp(zone_left=zone_id, zone_right=temp))
-            state.merge_chains(zone_id, temp)
+            # Merge: zone_id(M/L) + right_temp(T) → zone_idに保存
+            ops.append(MergeOp(zone_left=zone_id, zone_right=right_temp))
+            state.merge_chains(zone_id, right_temp)
             
         elif right_pos == len(contents) - 1:
             # パターン3: 右端ペア [A, B, C, D] の Swap(C, D)
-            # Split(left_pos - 1のイオン) → [A, B] | [C, D]
-            split_ion = contents[left_pos - 1]
-            temp = state.allocate_temp_zone()
-            ops.append(SplitOp(ion_id=split_ion, right_zone_id=temp))
-            state.split_chain(split_ion, temp)
+            # 左チェイン[A,B]を左Tempへ退避、zone_idでSwap
+            assert left_temp is not None, f"No left temp zone for zone {zone_id}"
             
-            # Swap (tempゾーン内で)
+            split_ion = contents[left_pos - 1]
+            # Split(B) → left_temp: [A, B], zone_id: [C, D]
+            ops.append(SplitOp(ion_id=split_ion, dst_zone_id=left_temp))
+            state.split_chain(split_ion, left_temp)
+            
+            # Swap in zone_id (M/L zone)
             ops.append(SwapOp(targets=[left_ion, right_ion]))
             state.swap_ions(left_ion, right_ion)
             
-            # Merge
-            ops.append(MergeOp(zone_left=zone_id, zone_right=temp))
-            state.merge_chains(zone_id, temp)
+            # Merge: left_temp(T) + zone_id(M/L) → zone_idに保存
+            ops.append(MergeOp(zone_left=left_temp, zone_right=zone_id))
+            state.merge_chains(left_temp, zone_id)
             
         else:
             # パターン4: 中間ペア [A, B, C, D] の Swap(B, C)
-            # Split(left_pos - 1のイオン) → [A] | [B, C, D]
+            # 左チェイン[A]を左Temp、右チェイン[D]を右Tempへ退避
+            assert left_temp is not None, f"No left temp zone for zone {zone_id}"
+            assert right_temp is not None, f"No right temp zone for zone {zone_id}"
+            
+            # Split1: [A]を左Tempへ
             split_ion1 = contents[left_pos - 1]
-            temp1 = state.allocate_temp_zone()
-            ops.append(SplitOp(ion_id=split_ion1, right_zone_id=temp1))
-            state.split_chain(split_ion1, temp1)
+            ops.append(SplitOp(ion_id=split_ion1, dst_zone_id=left_temp))
+            state.split_chain(split_ion1, left_temp)
+            # Now: left_temp: [A], zone_id: [B, C, D]
             
-            # Split(right_ion) → [A] | [B, C] | [D]
-            temp2 = state.allocate_temp_zone()
-            ops.append(SplitOp(ion_id=right_ion, right_zone_id=temp2))
-            state.split_chain(right_ion, temp2)
+            # Split2: [D]を右Tempへ
+            ops.append(SplitOp(ion_id=right_ion, dst_zone_id=right_temp))
+            state.split_chain(right_ion, right_temp)
+            # Now: left_temp: [A], zone_id: [B, C], right_temp: [D]
             
-            # Swap (temp1ゾーン内で)
+            # Swap in zone_id (M/L zone)
             ops.append(SwapOp(targets=[left_ion, right_ion]))
             state.swap_ions(left_ion, right_ion)
+            # Now: left_temp: [A], zone_id: [C, B], right_temp: [D]
             
-            # Merge (temp1 + temp2)
-            ops.append(MergeOp(zone_left=temp1, zone_right=temp2))
-            state.merge_chains(temp1, temp2)
+            # Merge: zone_id(M/L) + right_temp(T) → zone_idに保存
+            ops.append(MergeOp(zone_left=zone_id, zone_right=right_temp))
+            state.merge_chains(zone_id, right_temp)
+            # Now: left_temp: [A], zone_id: [C, B, D]
             
-            # Merge (zone_id + temp1)
-            ops.append(MergeOp(zone_left=zone_id, zone_right=temp1))
-            state.merge_chains(zone_id, temp1)
+            # Merge: left_temp(T) + zone_id(M/L) → zone_idに保存
+            ops.append(MergeOp(zone_left=left_temp, zone_right=zone_id))
+            state.merge_chains(left_temp, zone_id)
+            # Now: zone_id: [A, C, B, D]
         
         return ops
     
     def _expand_shuttle(self, shuttle_op: ShuttleOp, state: QCCDState) -> List[Operation]:
         """
-        ShuttleOpを展開
+        ShuttleOpを展開（7ゾーン対応）
         
-        展開後の操作: Split → Shuttle → Merge
-        
-        物理的な動作:
-        1. 移動するイオンをsrcチェインから分離 (Split)
-        2. 分離されたイオンが電極上を移動 (Shuttle)
+        物理的な動作（1ホップ = 非Tゾーン → Tゾーン → 非Tゾーン）:
+        1. srcからイオンを分離し隣接Temp Zoneへ (Split)
+        2. Temp ZoneからdstへイオンがE極上を移動 (Shuttle)
         3. dstチェインと結合 (Merge)
         
-        方向による違い:
-        - 右方向（src < dst）: イオンは右端、Split(inherit="left")、Merge(inherit="right")
-        - 左方向（src > dst）: イオンは左端、Split(inherit="right")、Merge(inherit="left")
+        M(1) → L(3) の場合: Split(1→2), Shuttle(2→3), Merge(2→3)
+        M(5) → L(3) の場合: Split(5→4), Shuttle(4→3), Merge(4→3)
         """
         ion_id = shuttle_op.target
         src_zone = state.locate(ion_id)
         dst_zone = shuttle_op.dst.trap
-        is_right_direction = src_zone < dst_zone
+        is_right = src_zone < dst_zone
+        
+        # 方向に応じたTemp Zone決定
+        if is_right:
+            temp_zone = state.architecture.get_adjacent_temp(src_zone, "right")
+        else:
+            temp_zone = state.architecture.get_adjacent_temp(src_zone, "left")
+        
+        assert temp_zone is not None, \
+            f"No adjacent temp zone for zone {src_zone} in direction {'right' if is_right else 'left'}"
         
         ops: List[Operation] = []
         
         src_contents = list(state.zone_contents[src_zone])
         dst_contents = list(state.zone_contents[dst_zone])
         
-        # === src_zoneに1イオンのみのケース ===
-        # 物理的には Split → Shuttle → Merge が必要
+        # === Step 1: Split (srcからion_idを分離してTemp Zoneへ) ===
+        
         if len(src_contents) == 1:
-            temp_zone = state.allocate_temp_zone()
-            
-            # Step 1: Split (srcからion_idを分離)
-            ops.append(SplitOp(ion_id=ion_id, right_zone_id=temp_zone, inherit="right"))
-            state.split_chain_with_inherit(ion_id, temp_zone, inherit="right")
-            # 結果: src_zone=[], temp_zone=[ion_id]
-            
-            # Step 2: Shuttle
-            ops.append(ShuttleOp(target=ion_id, dst=shuttle_op.dst, dst_chain_length=len(dst_contents)))
-            
-            # Step 3: Merge (dstチェインと結合)
-            if is_right_direction:
-                ops.append(MergeOp(zone_left=temp_zone, zone_right=dst_zone, inherit="right"))
-                state.merge_chains(temp_zone, dst_zone, inherit="right")
-            else:
-                ops.append(MergeOp(zone_left=dst_zone, zone_right=temp_zone, inherit="left"))
-                state.merge_chains(dst_zone, temp_zone, inherit="left")
-            
-            return ops
-        
-        # === 通常ケース: srcに複数イオン ===
-        ion_pos = src_contents.index(ion_id)
-        
-        # 一時ゾーンIDを取得
-        temp_zone = state.allocate_temp_zone()
-        
-        if is_right_direction:
-            # 右方向: イオンは右端にいるはず
-            assert ion_pos == len(src_contents) - 1, \
-                f"ion {ion_id} should be at right end for right-direction shuttle, but at pos {ion_pos}"
-            
-            # === Step 1: Split (ion_idを分離) ===
-            # ion_idの左隣で分割 → src: [...], temp: [ion_id]
-            split_ion = src_contents[ion_pos - 1]
-            ops.append(SplitOp(ion_id=split_ion, right_zone_id=temp_zone, inherit="left"))
-            state.split_chain(split_ion, temp_zone)
-            # Now: src_zone: [..., split_ion], temp_zone: [ion_id]
-            
+            # src_zoneに1イオンのみ: Split でイオンをTempへ分離
+            ops.append(SplitOp(ion_id=ion_id, dst_zone_id=temp_zone))
+            state.split_chain(ion_id, temp_zone)
         else:
-            # 左方向: イオンは左端にいるはず
-            assert ion_pos == 0, \
-                f"ion {ion_id} should be at left end for left-direction shuttle, but at pos {ion_pos}"
+            # 複数イオン
+            ion_pos = src_contents.index(ion_id)
             
-            # === Step 1: Split (ion_idを分離) ===
-            # ion_id自体で分割 → temp: [ion_id], src: [残り]
-            ops.append(SplitOp(ion_id=ion_id, right_zone_id=temp_zone, inherit="right"))
-            # inherit="right"なので、右側（temp_zone側）ではなく右側が元IDを継承
-            # つまり src_zone: [ion_id], temp_zone: [残り] → 左側がtemp、右側が元ID
-            # あれ、これだと意味が違う...
-            # 
-            # SplitOpの意味:
-            # - ion_idが右端になる位置で分割
-            # - inherit="left": 左側が元ID
-            # - inherit="right": 右側が元ID
-            #
-            # Zone2: [A, B, C] でAを分離
-            # Split(A, temp, inherit="right") 
-            # → 分割: [A | B, C]
-            # → inherit="right"なので右側(B,C)が元ID(Zone2)
-            # → 結果: temp: [A], Zone2: [B, C]
-            #
-            # これが正しい！
-            state.split_chain_with_inherit(ion_id, temp_zone, inherit="right")
-            # Now: temp_zone: [ion_id], src_zone: [残り]
+            if is_right:
+                # 右方向: イオンは右端にいるはず
+                assert ion_pos == len(src_contents) - 1, \
+                    f"ion {ion_id} should be at right end for right-direction shuttle, but at pos {ion_pos}"
+                
+                # ion_idの左隣で分割 → src: [...], temp(right): [ion_id]
+                split_ion = src_contents[ion_pos - 1]
+                ops.append(SplitOp(ion_id=split_ion, dst_zone_id=temp_zone))
+                state.split_chain(split_ion, temp_zone)
+            else:
+                # 左方向: イオンは左端にいるはず
+                assert ion_pos == 0, \
+                    f"ion {ion_id} should be at left end for left-direction shuttle, but at pos {ion_pos}"
+                
+                # ion_id自体で分割 → temp(left): [ion_id], src: [残り]
+                ops.append(SplitOp(ion_id=ion_id, dst_zone_id=temp_zone))
+                state.split_chain(ion_id, temp_zone)
         
-        # === Step 2: Shuttle (電極上を移動) ===
+        # === Step 2: Shuttle (Temp Zone → dst方向への物理的移動) ===
         ops.append(ShuttleOp(target=ion_id, dst=shuttle_op.dst, dst_chain_length=len(dst_contents)))
         
-        # === Step 3: Merge (dstチェインと結合) ===
-        # dst_zoneが空でも非空でも、MergeOpを追加して一貫性を保つ
-        if is_right_direction:
-            # 右方向: temp | dst → inherit="right"でdstを保持
-            ops.append(MergeOp(zone_left=temp_zone, zone_right=dst_zone, inherit="right"))
-            # merge_chainsで正しく状態更新とカウンターリセットを行う
-            state.merge_chains(temp_zone, dst_zone, inherit="right")
-        else:
-            # 左方向: dst | temp → inherit="left"でdstを保持
-            ops.append(MergeOp(zone_left=dst_zone, zone_right=temp_zone, inherit="left"))
-            state.merge_chains(dst_zone, temp_zone, inherit="left")
+        # === Step 3: Merge (Temp Zone + dst → dstに保存) ===
+        left_z = min(temp_zone, dst_zone)
+        right_z = max(temp_zone, dst_zone)
+        ops.append(MergeOp(zone_left=left_z, zone_right=right_z))
+        state.merge_chains(left_z, right_z)
         
         return ops
 
@@ -1144,13 +1166,13 @@ class QCCDCompiler:
             liz_contents = state.zone_contents.get(liz_id, [])[:]
             for ion in liz_contents:
                 if ion not in batch_targets:
-                    evict_zone = 2 if ion >= 9 else 0
+                    evict_zone = 5 if ion >= 9 else 1
                     to_right = evict_zone > liz_id
                     self._swap_to_edge(ion, state, operations, to_right=to_right)
                     loc = self._make_shuttle_location(state, ion, evict_zone)
                     evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(evict_zone, [])))
                     operations.append(evict_op)
-                    state.move_ion(ion, evict_zone)
+                    state.transfer_ion(ion, evict_zone)
             
             # Step 2: 全ターゲットをLIZに搬入
             for target_id in batch_targets:
@@ -1161,7 +1183,7 @@ class QCCDCompiler:
                     loc = self._make_shuttle_location(state, target_id, liz_id)
                     shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
                     operations.append(shuttle_op)
-                    state.move_ion(target_id, liz_id)
+                    state.transfer_ion(target_id, liz_id)
             
             # Step 3: 1つのRESET操作（複数targets）を発行
             batch_reset = ResetOp(targets=batch_targets)
@@ -1199,13 +1221,13 @@ class QCCDCompiler:
             liz_contents = state.zone_contents.get(liz_id, [])[:]
             for ion in liz_contents:
                 if ion not in batch_targets:
-                    evict_zone = 2 if ion >= 9 else 0
+                    evict_zone = 5 if ion >= 9 else 1
                     to_right = evict_zone > liz_id
                     self._swap_to_edge(ion, state, operations, to_right=to_right)
                     loc = self._make_shuttle_location(state, ion, evict_zone)
                     evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(evict_zone, [])))
                     operations.append(evict_op)
-                    state.move_ion(ion, evict_zone)
+                    state.transfer_ion(ion, evict_zone)
             
             # Step 2: 全ターゲットをLIZに搬入
             for target_id in batch_targets:
@@ -1216,7 +1238,7 @@ class QCCDCompiler:
                     loc = self._make_shuttle_location(state, target_id, liz_id)
                     shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
                     operations.append(shuttle_op)
-                    state.move_ion(target_id, liz_id)
+                    state.transfer_ion(target_id, liz_id)
             
             # Step 3: 1つのMEASURE操作（複数targets）を発行
             batch_measure = MeasureOp(targets=batch_targets)
@@ -1285,7 +1307,7 @@ class QCCDCompiler:
                     loc = self._make_shuttle_location(state, evict_ion, nearest_memory)
                     evict_op = ShuttleOp(target=evict_ion, dst=loc, dst_chain_length=len(state.zone_contents.get(nearest_memory, [])))
                     movement_ops.append((evict_op, "out"))
-                    state.move_ion(evict_ion, nearest_memory)
+                    state.transfer_ion(evict_ion, nearest_memory)
                 liz_contents = state.zone_contents.get(liz_id, [])
             
             # ターゲットをLIZに移動
@@ -1293,7 +1315,7 @@ class QCCDCompiler:
             loc = self._make_shuttle_location(state, target_id, liz_id)
             shuttle_op = ShuttleOp(target=target_id, dst=loc, dst_chain_length=len(state.zone_contents.get(liz_id, [])))
             movement_ops.append((shuttle_op, "in"))
-            state.move_ion(target_id, liz_id)
+            state.transfer_ion(target_id, liz_id)
         
         # LIZにターゲット以外がいる場合、退避
         liz_contents = state.zone_contents.get(liz_id, [])
@@ -1304,7 +1326,7 @@ class QCCDCompiler:
                     loc = self._make_shuttle_location(state, ion, nearest_memory)
                     evict_op = ShuttleOp(target=ion, dst=loc, dst_chain_length=len(state.zone_contents.get(nearest_memory, [])))
                     movement_ops.append((evict_op, "out"))
-                    state.move_ion(ion, nearest_memory)
+                    state.transfer_ion(ion, nearest_memory)
         
         return movement_ops
     
@@ -1444,7 +1466,7 @@ class QCCDCompiler:
                         "in"
                     ))
                     # SHUTTLE操作を状態に反映
-                    state.move_ion(ion_id, target_liz_id)
+                    state.transfer_ion(ion_id, target_liz_id)
                 
                 if movement_ops:
                     return movement_ops
@@ -1488,7 +1510,7 @@ class QCCDCompiler:
                 "out"
             ))
             # 状態を更新
-            state.move_ion(ion_id, evict_dst)
+            state.transfer_ion(ion_id, evict_dst)
         
         return eviction_ops
     
@@ -1544,7 +1566,7 @@ class QCCDCompiler:
                 "out"
             ))
             # SHUTTLE操作を状態に反映
-            state.move_ion(ion_to_evict, evict_dst)
+            state.transfer_ion(ion_to_evict, evict_dst)
         
         return eviction_ops
     
@@ -1678,14 +1700,14 @@ if __name__ == "__main__":
     # Test 1: LIZ容量に余裕あり
     # ========================================
     print("\n" + "=" * 60)
-    print("Test 1: Sufficient LIZ capacity (M-L-M, LIZ capacity=4)")
+    print("Test 1: Sufficient LIZ capacity (T-M-T-L-T-M-T, LIZ capacity=4)")
     print("=" * 60)
     
     arch1 = QCCDArchitecture.simple_mlm(liz_capacity=4)
     print(f"\nArchitecture: {arch1}")
     
-    # Ion 0, 1 をLIZ(zone 1)に、Ion 2 をMemory(zone 0)に配置
-    initial1 = {0: 1, 1: 1, 2: 0}
+    # Ion 0, 1 をLIZ(zone 3)に、Ion 2 をMemory(zone 1)に配置
+    initial1 = {0: 3, 1: 3, 2: 1}
     print(f"Initial placement: {initial1}")
     
     compiler1 = QCCDCompiler(arch1)
@@ -1700,15 +1722,15 @@ if __name__ == "__main__":
     # Test 2: LIZ容量制限あり（退避が必要）
     # ========================================
     print("\n" + "=" * 60)
-    print("Test 2: Limited LIZ capacity (M-L-M, LIZ capacity=2)")
+    print("Test 2: Limited LIZ capacity (T-M-T-L-T-M-T, LIZ capacity=2)")
     print("=" * 60)
     
     arch2 = QCCDArchitecture.simple_mlm(liz_capacity=2)
     print(f"\nArchitecture: {arch2}")
     
-    # Ion 0, 1 をLIZ(zone 1)に、Ion 2 をMemory(zone 0)に配置
+    # Ion 0, 1 をLIZ(zone 3)に、Ion 2 をMemory(zone 1)に配置
     # LIZ容量=2 なので、Ion 2を入れるにはIon 0か1を退避する必要
-    initial2 = {0: 1, 1: 1, 2: 0}
+    initial2 = {0: 3, 1: 3, 2: 1}
     print(f"Initial placement: {initial2}")
     
     dag.reset_execution()  # DAGをリセット
@@ -1753,14 +1775,13 @@ if __name__ == "__main__":
     arch3 = QCCDArchitecture.simple_mlm(liz_capacity=4)
     print(f"\nArchitecture: {arch3}")
     
-    # 全イオンをMemory(zone 0)に配置
-    # zone 0 = Memory(左), zone 1 = LIZ, zone 2 = Memory(右)
+    # 全イオンをMemory(zone 1)に配置
+    # zone 1 = Memory(左), zone 3 = LIZ, zone 5 = Memory(右)
     # LIZへ移動するには右端にいる必要（dst > src）
-    # Ion 0 は左端、Ion 3 は右端
-    initial3 = {0: 0, 1: 0, 2: 0, 3: 0}
+    initial3 = {0: 1, 1: 1, 2: 1, 3: 1}
     print(f"Initial placement: {initial3}")
-    print("Zone 0 contents: [Ion0, Ion1, Ion2, Ion3] (left to right)")
-    print("To move to LIZ (zone 1), ions must be at right edge")
+    print("Zone 1 contents: [Ion0, Ion1, Ion2, Ion3] (left to right)")
+    print("To move to LIZ (zone 3), ions must be at right edge")
     print("Ion 0 needs SWAP, Ion 3 doesn't")
     
     compiler3 = QCCDCompiler(arch3)
@@ -1777,32 +1798,26 @@ if __name__ == "__main__":
     print(f"\nStatistics: {result3.stats}")
     
     # ========================================
-    # Test 4: 複数LIZ構成
+    # Test 4: カスタム構成
     # ========================================
     print("\n" + "=" * 60)
-    print("Test 4: Dual LIZ (M-L-L-M)")
+    print("Test 4: Custom architecture")
     print("=" * 60)
     
-    arch4 = QCCDArchitecture.dual_liz(liz_capacity=2)
+    arch4 = QCCDArchitecture([("T", 20), ("M", 15), ("T", 20), ("L", 2), ("T", 20), ("L", 2), ("T", 20), ("M", 15), ("T", 20)])
     print(f"\nArchitecture: {arch4}")
     for zone in arch4.zones:
         print(f"  Zone {zone.id}: {zone.zone_type}, capacity={zone.capacity}, position={zone.position}")
-    
-    # カスタム構成のテスト
-    print("\n" + "=" * 60)
-    print("Test 5: Custom architecture")
-    print("=" * 60)
-    
-    arch5 = QCCDArchitecture([("M", 15), ("L", 2), ("L", 2), ("M", 15)])
-    print(f"\nArchitecture: {arch5}")
-    print(f"Adjacent to zone 1: {arch5.get_adjacent_zones(1)}")
-    print(f"Adjacent to zone 2: {arch5.get_adjacent_zones(2)}")
+    print(f"Adjacent to zone 3: {arch4.get_adjacent_zones(3)}")
+    print(f"Path from zone 1 to zone 5: {arch4.get_path(1, 5)}")
+    print(f"Adjacent temp of zone 1 (right): {arch4.get_adjacent_temp(1, 'right')}")
+    print(f"Adjacent temp of zone 3 (left): {arch4.get_adjacent_temp(3, 'left')}")
     
     # ========================================
-    # Test 6: Operation Expansion
+    # Test 5: Operation Expansion
     # ========================================
     print("\n" + "=" * 60)
-    print("Test 6: Operation Expansion")
+    print("Test 5: Operation Expansion")
     print("=" * 60)
     
     # Swap展開テスト
@@ -1811,39 +1826,39 @@ if __name__ == "__main__":
     arch6 = QCCDArchitecture.simple_mlm(liz_capacity=10)
     expander = OperationExpander()
     
-    # テスト6-1: 2イオンのみ
-    print("\n[6-1] 2 ions only: Swap(A, B)")
-    initial_2ion = {0: 0, 1: 0}  # Zone0: [0, 1]
+    # テスト5-1: 2イオンのみ
+    print("\n[5-1] 2 ions only: Swap(A, B)")
+    initial_2ion = {0: 1, 1: 1}  # Zone1(M): [0, 1]
     ops_2ion = [SwapOp(targets=[0, 1])]
     expanded_2ion = expander.expand(ops_2ion, arch6, initial_2ion)
     print(f"  Input:  {ops_2ion}")
     print(f"  Output: {expanded_2ion}")
     
-    # テスト6-2: 左端ペア
-    print("\n[6-2] Left edge pair: [A, B, C, D] Swap(A, B)")
-    initial_left = {0: 0, 1: 0, 2: 0, 3: 0}  # Zone0: [0, 1, 2, 3]
+    # テスト5-2: 左端ペア
+    print("\n[5-2] Left edge pair: [A, B, C, D] Swap(A, B)")
+    initial_left = {0: 1, 1: 1, 2: 1, 3: 1}  # Zone1(M): [0, 1, 2, 3]
     ops_left = [SwapOp(targets=[0, 1])]
-    expander = OperationExpander()  # リセット
+    expander = OperationExpander()
     expanded_left = expander.expand(ops_left, arch6, initial_left)
     print(f"  Input:  {ops_left}")
     print(f"  Output:")
     for op in expanded_left:
         print(f"    {op}")
     
-    # テスト6-3: 右端ペア
-    print("\n[6-3] Right edge pair: [A, B, C, D] Swap(C, D)")
+    # テスト5-3: 右端ペア
+    print("\n[5-3] Right edge pair: [A, B, C, D] Swap(C, D)")
     ops_right = [SwapOp(targets=[2, 3])]
-    expander = OperationExpander()  # リセット
+    expander = OperationExpander()
     expanded_right = expander.expand(ops_right, arch6, initial_left)
     print(f"  Input:  {ops_right}")
     print(f"  Output:")
     for op in expanded_right:
         print(f"    {op}")
     
-    # テスト6-4: 中間ペア
-    print("\n[6-4] Middle pair: [A, B, C, D] Swap(B, C)")
+    # テスト5-4: 中間ペア
+    print("\n[5-4] Middle pair: [A, B, C, D] Swap(B, C)")
     ops_mid = [SwapOp(targets=[1, 2])]
-    expander = OperationExpander()  # リセット
+    expander = OperationExpander()
     expanded_mid = expander.expand(ops_mid, arch6, initial_left)
     print(f"  Input:  {ops_mid}")
     print(f"  Output:")
@@ -1853,21 +1868,21 @@ if __name__ == "__main__":
     # Shuttle展開テスト
     print("\n--- Shuttle Expansion Tests ---")
     
-    # テスト6-5: 右方向シャトル
-    print("\n[6-5] Shuttle right: Zone0[A,B,C] -> Zone1, move C")
-    initial_shuttle = {0: 0, 1: 0, 2: 0, 3: 1, 4: 1}  # Zone0: [0,1,2], Zone1: [3,4]
-    ops_shuttle_r = [ShuttleOp(target=2, dst=Location(trap=1, site=0))]
-    expander = OperationExpander()  # リセット
+    # テスト5-5: 右方向シャトル M(1) → L(3)
+    print("\n[5-5] Shuttle right: Zone1(M)[A,B,C] -> Zone3(L), move C")
+    initial_shuttle = {0: 1, 1: 1, 2: 1, 3: 3, 4: 3}  # Zone1(M): [0,1,2], Zone3(L): [3,4]
+    ops_shuttle_r = [ShuttleOp(target=2, dst=Location(trap=3, site=0))]
+    expander = OperationExpander()
     expanded_shuttle_r = expander.expand(ops_shuttle_r, arch6, initial_shuttle)
     print(f"  Input:  {ops_shuttle_r}")
     print(f"  Output:")
     for op in expanded_shuttle_r:
         print(f"    {op}")
     
-    # テスト6-6: 左方向シャトル
-    print("\n[6-6] Shuttle left: Zone1[X,Y] -> Zone0, move X")
-    ops_shuttle_l = [ShuttleOp(target=3, dst=Location(trap=0, site=0))]
-    expander = OperationExpander()  # リセット
+    # テスト5-6: 左方向シャトル L(3) → M(1)
+    print("\n[5-6] Shuttle left: Zone3(L)[X,Y] -> Zone1(M), move X")
+    ops_shuttle_l = [ShuttleOp(target=3, dst=Location(trap=1, site=0))]
+    expander = OperationExpander()
     expanded_shuttle_l = expander.expand(ops_shuttle_l, arch6, initial_shuttle)
     print(f"  Input:  {ops_shuttle_l}")
     print(f"  Output:")

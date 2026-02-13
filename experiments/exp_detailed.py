@@ -26,6 +26,7 @@ from qccd_parser import parse
 from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from estimator import Estimator
+from validator import validate_operations
 
 
 # ==========================================
@@ -47,6 +48,7 @@ CONFIG = CompilerConfig(
 # アーキテクチャ設定
 LIZ_CAPACITY = 4
 MEMORY_CAPACITY = 20
+TEMP_CAPACITY = 20
 
 # DAG設定
 STABILIZER_PARALLEL = False
@@ -56,8 +58,13 @@ STABILIZER_PARALLEL = False
 # 出力機能
 # ==========================================
 
-def operation_to_dict(op) -> dict:
-    """Operation を辞書に変換（JSON出力用）"""
+def operation_to_dict(op, arch=None) -> dict:
+    """Operation を辞書に変換（JSON出力用）
+    
+    Args:
+        op: Operation
+        arch: QCCDArchitecture（MergeOpの保存先ゾーン表示に使用）
+    """
     type_name = type(op).__name__
     result = {"type": type_name}
     
@@ -72,10 +79,16 @@ def operation_to_dict(op) -> dict:
         result["targets"] = op.targets
     elif type_name == "SplitOp":
         result["ion_id"] = op.ion_id
-        result["right_zone_id"] = op.right_zone_id
+        result["dst_zone_id"] = op.dst_zone_id
     elif type_name == "MergeOp":
         result["zone_left"] = op.zone_left
         result["zone_right"] = op.zone_right
+        # 保存先ゾーン: Temp Zoneでない方（M/L側）に結果が残る
+        if arch is not None:
+            if arch.is_temp(op.zone_left) and not arch.is_temp(op.zone_right):
+                result["dst_zone_id"] = op.zone_right
+            elif arch.is_temp(op.zone_right) and not arch.is_temp(op.zone_left):
+                result["dst_zone_id"] = op.zone_left
     elif type_name == "ResetOp":
         result["targets"] = op.targets
     elif type_name == "MeasureOp":
@@ -144,7 +157,7 @@ def analyze_swap_patterns(operations) -> dict:
     return result
 
 
-def save_detailed_json(result, estimation, filepath: str, metadata: dict = None, swap_analysis: dict = None):
+def save_detailed_json(result, estimation, filepath: str, arch=None, metadata: dict = None, swap_analysis: dict = None):
     """コンパイル結果をJSONファイルに保存（命令列込み）"""
     output = {
         "metadata": {
@@ -158,7 +171,7 @@ def save_detailed_json(result, estimation, filepath: str, metadata: dict = None,
                 "breakdown": estimation.breakdown,  # 操作種別ごとの時間（μs）
             }
         },
-        "operations": [operation_to_dict(op) for op in result.operations]
+        "operations": [operation_to_dict(op, arch=arch) for op in result.operations]
     }
     
     if swap_analysis:
@@ -173,6 +186,35 @@ def save_detailed_json(result, estimation, filepath: str, metadata: dict = None,
         json.dump(output, f, indent=2, ensure_ascii=False)
     
     print(f"\n[Output] Saved to: {filepath}")
+
+
+def save_operations_txt(result, filepath: str, initial_placement: dict = None, arch=None):
+    """コンパイル結果の命令列をテキストファイルに保存"""
+    lines = []
+    
+    # ヘッダー
+    lines.append(f"# Compiler Output: {len(result.operations)} operations")
+    lines.append(f"# Stats: {result.stats}")
+    
+    if arch:
+        layout = " - ".join(f"z{z.id}:{z.zone_type}({z.capacity})" for z in arch.zones)
+        lines.append(f"# Architecture: {layout}")
+    
+    if initial_placement:
+        lines.append(f"# Initial placement: {initial_placement}")
+    
+    lines.append("")
+    
+    # 命令列
+    for i, op in enumerate(result.operations):
+        lines.append(f"[{i:4d}] {op}")
+    
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write("\n".join(lines) + "\n")
+    
+    print(f"[Output] Saved to: {filepath}")
 
 
 # ==========================================
@@ -209,23 +251,25 @@ def run_detailed_analysis(circuit_module_name: str):
     # アーキテクチャ
     arch = QCCDArchitecture.simple_mlm(
         liz_capacity=LIZ_CAPACITY,
-        memory_capacity=MEMORY_CAPACITY
+        memory_capacity=MEMORY_CAPACITY,
+        temp_capacity=TEMP_CAPACITY,
     )
     print(f"\n[Architecture]")
     print(f"  {arch}")
     print(f"  LIZ capacity: {LIZ_CAPACITY}")
     print(f"  Memory capacity: {MEMORY_CAPACITY}")
+    print(f"  Temp capacity: {TEMP_CAPACITY}")
     
-    # 初期配置
+    # 初期配置（Memory Zone: zone 1 = 左Memory, zone 5 = 右Memory）
     initial = {}
     for qid in circuit_module.DATA_QUBITS:
-        initial[8-qid] = 0
+        initial[8-qid] = 1
     for qid in circuit_module.ANCILLA_QUBITS:
-        initial[qid] = 2
+        initial[qid] = 5
     
     print(f"\n[Initial Placement]")
-    print(f"  Data qubits → zone 0")
-    print(f"  Ancilla qubits → zone 2")
+    print(f"  Data qubits → zone 1 (Memory left)")
+    print(f"  Ancilla qubits → zone 5 (Memory right)")
     
     # コンパイラ設定
     print(f"\n[Compiler Config]")
@@ -241,6 +285,18 @@ def run_detailed_analysis(circuit_module_name: str):
     print(f"  Statistics:")
     for key, value in sorted(result.stats.items()):
         print(f"    {key}: {value}")
+    
+    # 検証
+    print(f"\n[Validation]")
+    validation = validate_operations(result.operations, initial, arch, verbose=False)
+    if validation.is_valid:
+        print(f"  PASSED ({len(result.operations)} operations verified)")
+    else:
+        print(f"  FAILED: {len(validation.errors)} error(s)")
+        for e in validation.errors[:10]:
+            print(f"    {e}")
+        if len(validation.errors) > 10:
+            print(f"    ... and {len(validation.errors) - 10} more")
     
     # 時間推定
     estimation = Estimator().estimate(result.operations)
@@ -289,11 +345,16 @@ def run_detailed_analysis(circuit_module_name: str):
             "type": "simple_mlm",
             "liz_capacity": LIZ_CAPACITY,
             "memory_capacity": MEMORY_CAPACITY,
+            "temp_capacity": TEMP_CAPACITY,
         },
         "stabilizer_parallel": STABILIZER_PARALLEL,
     }
     
-    save_detailed_json(result, estimation, str(output_file), metadata, swap_analysis)
+    save_detailed_json(result, estimation, str(output_file), arch=arch, metadata=metadata, swap_analysis=swap_analysis)
+    
+    # テキスト出力（命令列）
+    txt_file = output_dir / f"{circuit_module_name}_{timestamp}.txt"
+    save_operations_txt(result, str(txt_file), initial_placement=initial, arch=arch)
     
     print("\n" + "=" * 70)
     print("Analysis Complete")
