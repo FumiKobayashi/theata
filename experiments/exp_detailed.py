@@ -39,10 +39,6 @@ CIRCUIT_MODULE = "snake_per_stabilizer"
 # コンパイラ設定
 CONFIG = CompilerConfig(
     gate_selection="min_id",
-    eviction_policy="first",
-    target_liz_selection="first_available",
-    batch_reset_measure=False,
-    batch_size=0,
 )
 
 # アーキテクチャ設定

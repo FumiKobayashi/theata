@@ -209,7 +209,7 @@ if __name__ == "__main__":
     
     # アーキテクチャとコンパイル
     arch = QCCDArchitecture.simple_mlm(liz_capacity=4)
-    initial = {0: 1, 1: 1, 2: 0}
+    initial = {0: 1, 1: 1, 2: 1}  # zone 1 (Memory)
     
     compiler = QCCDCompiler(arch)
     result = compiler.compile(dag, initial)

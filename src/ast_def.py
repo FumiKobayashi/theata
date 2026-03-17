@@ -46,6 +46,7 @@ class GateOp(Operation):
     type: str           # "MS" or "R"
     targets: List[int]  # ion_id のリスト
     params: List[float] # 角度パラメータ
+    zone_id: int = -1   # 実行するLIZゾーン（MovementPlannerが設定）
 
 
 # ==========================================
@@ -62,6 +63,7 @@ class ShuttleOp(Operation):
     target: int         # 移動するion_id
     dst: Location       # 移動先 (srcは状態から導出)
     dst_chain_length: int = 0  # dstトラップのイオン数（コンパイラが設定）
+    src_zone: int = -1  # シャトル中のTempゾーン（MovementPlannerが設定）
     type: str = "SHUTTLE"
 
 
@@ -69,6 +71,7 @@ class ShuttleOp(Operation):
 class SwapOp(Operation):
     """スワップ操作: 同一trap内の2イオンの順序を入れ替え"""
     targets: List[int]  # 入れ替える2つのion_id
+    zone_id: int = -1   # スワップが行われるゾーン（MovementPlannerが設定）
     type: str = "SWAP"
 
 
@@ -94,6 +97,7 @@ class SplitOp(Operation):
     """
     ion_id: int             # このイオンが右端になる位置で分割
     dst_zone_id: int        # 分割されたチェーンの移動先
+    src_zone_id: int = -1   # 分割元ゾーン（MovementPlannerが設定）
     type: str = "SPLIT"
 
 
@@ -125,6 +129,7 @@ class MergeOp(Operation):
 class MeasureOp(Operation):
     """測定操作"""
     targets: List[int]  # 測定するion_idのリスト
+    zone_id: int = -1   # 実行するLIZゾーン（MovementPlannerが設定）
     type: str = "MEASURE"
 
 
@@ -132,7 +137,15 @@ class MeasureOp(Operation):
 class ResetOp(Operation):
     """リセット操作"""
     targets: List[int]  # リセットするion_idのリスト
+    zone_id: int = -1   # 実行するLIZゾーン（MovementPlannerが設定）
     type: str = "RESET"
+
+
+@dataclass
+class TimeStep:
+    """並列実行可能な操作の集合（Schedulerが生成）"""
+    ops: List[Operation]
+    type: str = "TIMESTEP"
 
 
 @dataclass
