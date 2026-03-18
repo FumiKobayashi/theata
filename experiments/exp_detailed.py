@@ -34,7 +34,7 @@ from validator import validate_operations
 # ==========================================
 
 # 回路モジュール名（circuits/以下のファイル名、拡張子なし）
-CIRCUIT_MODULE = "snake_per_stabilizer"
+CIRCUIT_MODULE = "snake_reuse1"
 
 # コンパイラ設定
 CONFIG = CompilerConfig(
