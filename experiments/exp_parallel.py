@@ -41,6 +41,7 @@ CIRCUIT_MODULE = "snake_batch_measure_per"
 # コンパイラ設定
 CONFIG = CompilerConfig(
     gate_selection="min_id",
+    memory_reorder=True,
 )
 
 # アーキテクチャ設定

@@ -36,8 +36,10 @@ class CompilerConfig:
     Attributes:
         gate_selection: ゲート選択戦略
             - "min_id": Front Layerから最小IDを選択（baseline）
+        memory_reorder: Measure/Reset中にMemory内イオンを先読み整列するか
     """
     gate_selection: str = "min_id"
+    memory_reorder: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -53,6 +55,8 @@ class CompilerConfig:
         valid_gate = {"min_id"}
         if self.gate_selection not in valid_gate:
             raise ValueError(f"Invalid gate_selection: {self.gate_selection}. Valid: {valid_gate}")
+        if not isinstance(self.memory_reorder, bool):
+            raise ValueError(f"memory_reorder must be bool, got {type(self.memory_reorder)}")
 
 
 # ==========================================
@@ -418,6 +422,10 @@ class MovementPlanner:
     def __init__(self, architecture: QCCDArchitecture, config: "CompilerConfig" = None):
         self.architecture = architecture
         self.config = config or CompilerConfig.baseline()
+        self._reorder_optimizer = None
+        if self.config.memory_reorder:
+            from memory_reorder_optimizer import MemoryReorderOptimizer
+            self._reorder_optimizer = MemoryReorderOptimizer(architecture)
 
     def plan(self, dag: DAG, initial_placement: Dict[int, int]) -> List[Operation]:
         """
@@ -448,6 +456,13 @@ class MovementPlanner:
             if node is not None:
                 ops.append(self._annotate_gate(node.operation, state))
                 dag.execute(node.id)
+
+                # Measure/Reset 直後にMemory内先読み整列を挿入
+                if self._reorder_optimizer and isinstance(node.operation, (MeasureOp, ResetOp)):
+                    reorder_ops = self._reorder_optimizer.generate_reorder_ops(
+                        dag, state, node.id
+                    )
+                    ops.extend(reorder_ops)
             else:
                 movement_ops = self._generate_movements(dag, front_layer, state)
                 if not movement_ops:
