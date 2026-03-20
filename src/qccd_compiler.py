@@ -37,15 +37,26 @@ class CompilerConfig:
         gate_selection: ゲート選択戦略
             - "min_id": Front Layerから最小IDを選択（baseline）
         memory_reorder: Measure/Reset中にMemory内イオンを先読み整列するか
+        measure_batch_size: Measureのバッチサイズ
+            - 1: 即時測定（デフォルト、従来動作）
+            - 2+: 指定数のアンシラが測定待ちになるまで遅延し一括測定
+            - LIZ容量を超える値は自動的にLIZ容量にクランプされる
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
+    measure_batch_size: int = 1
+    interleave: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     def __repr__(self) -> str:
-        return f"CompilerConfig(gate={self.gate_selection})"
+        parts = [f"gate={self.gate_selection}"]
+        if self.measure_batch_size > 1:
+            parts.append(f"batch={self.measure_batch_size}")
+        if self.interleave:
+            parts.append("interleave")
+        return f"CompilerConfig({', '.join(parts)})"
 
     @classmethod
     def baseline(cls) -> "CompilerConfig":
@@ -57,6 +68,8 @@ class CompilerConfig:
             raise ValueError(f"Invalid gate_selection: {self.gate_selection}. Valid: {valid_gate}")
         if not isinstance(self.memory_reorder, bool):
             raise ValueError(f"memory_reorder must be bool, got {type(self.memory_reorder)}")
+        if not isinstance(self.measure_batch_size, int) or self.measure_batch_size < 1:
+            raise ValueError(f"measure_batch_size must be int >= 1, got {self.measure_batch_size}")
 
 
 # ==========================================
@@ -426,6 +439,9 @@ class MovementPlanner:
         if self.config.memory_reorder:
             from memory_reorder_optimizer import MemoryReorderOptimizer
             self._reorder_optimizer = MemoryReorderOptimizer(architecture)
+        # Interleave用: MS gate後にスタビライザを切り替える
+        self._last_ms_stabilizer: Optional[int] = None
+        self._preferred_stabilizer: Optional[int] = None
 
     def plan(self, dag: DAG, initial_placement: Dict[int, int]) -> List[Operation]:
         """
@@ -446,23 +462,73 @@ class MovementPlanner:
         ops: List[Operation] = []
         max_iterations = len(dag.nodes) * 200
 
+        # Measure バッチ化: 遅延中の Measure ノード情報
+        # batch_size > 1 の場合、Measure を即時実行せず溜めてからバッチ実行
+        batch_size = self.config.measure_batch_size
+        # LIZ容量でクランプ
+        liz_cap = self.architecture.get_liz_zones()[0].capacity
+        batch_size = min(batch_size, liz_cap)
+        # 補助量子ビットのユニーク数でクランプ
+        # reuse回路では同じアンシラが複数回MEASUREされるため、
+        # 同時測定可能な数はユニークなアンシラ数が上限
+        measure_ancillas = set()
+        for n in dag.nodes.values():
+            if isinstance(n.operation, MeasureOp):
+                for t in n.operation.targets:
+                    measure_ancillas.add(t)
+        if len(measure_ancillas) < batch_size:
+            batch_size = 1
+        # 測定待ちリスト: [(ancilla_ion_id, MeasureOp, node_id), ...]
+        pending_measures: List[tuple] = []
+
         for _ in range(max_iterations):
-            if dag.is_complete():
+            if dag.is_complete() and not pending_measures:
+                break
+
+            # DAG完了だが測定待ちが残っている → フラッシュ
+            if dag.is_complete() and pending_measures:
+                ops.extend(self._flush_pending_measures(pending_measures, state))
+                pending_measures.clear()
                 break
 
             front_layer = dag.get_front_layer()
 
+            # バッチ化: Measureが実行可能でも遅延させるか判定
             node = self._find_executable_node(dag, front_layer, state)
             if node is not None:
-                ops.append(self._annotate_gate(node.operation, state))
-                dag.execute(node.id)
+                if isinstance(node.operation, MeasureOp) and batch_size > 1:
+                    # Measureを遅延: DAG上では実行済みにするが、ops には追加しない
+                    ancilla_id = node.operation.targets[0]
+                    pending_measures.append((ancilla_id, node.operation, node.id))
+                    dag.execute(node.id)
 
-                # Measure/Reset 直後にMemory内先読み整列を挿入
-                if self._reorder_optimizer and isinstance(node.operation, (MeasureOp, ResetOp)):
-                    reorder_ops = self._reorder_optimizer.generate_reorder_ops(
-                        dag, state, node.id
-                    )
-                    ops.extend(reorder_ops)
+                    # アンシラをLIZからMemoryに退避（次のスタビライザに進むため）
+                    if state.is_in_liz(ancilla_id):
+                        liz_zone = state.locate(ancilla_id)
+                        evict_dst = state.find_eviction_destination(liz_zone)
+                        if evict_dst is not None:
+                            ops.extend(self._move_ion_to_zone(ancilla_id, evict_dst, state))
+
+                    # バッチが溜まったら一括測定
+                    if len(pending_measures) >= batch_size:
+                        ops.extend(self._flush_pending_measures(pending_measures, state))
+                        pending_measures.clear()
+                else:
+                    ops.append(self._annotate_gate(node.operation, state))
+                    dag.execute(node.id)
+
+                    # Interleave: MS gate実行後にスタビライザを切り替え
+                    if self.config.interleave and isinstance(node.operation, GateOp) and node.operation.type == 'MS':
+                        current_stab = node.stabilizer_id
+                        if current_stab is not None:
+                            self._last_ms_stabilizer = current_stab
+
+                    # Measure/Reset 直後にMemory内先読み整列を挿入
+                    if self._reorder_optimizer and isinstance(node.operation, (MeasureOp, ResetOp)):
+                        reorder_ops = self._reorder_optimizer.generate_reorder_ops(
+                            dag, state, node.id
+                        )
+                        ops.extend(reorder_ops)
             else:
                 movement_ops = self._generate_movements(dag, front_layer, state)
                 if not movement_ops:
@@ -478,6 +544,44 @@ class MovementPlanner:
 
         return ops
 
+    def _flush_pending_measures(
+        self,
+        pending_measures: List[tuple],
+        state: QCCDState
+    ) -> List[Operation]:
+        """
+        測定待ちアンシラを全てLIZに集めて一括Measureする
+
+        Args:
+            pending_measures: [(ancilla_id, MeasureOp, node_id), ...]
+            state: 現在の QCCDState
+
+        Returns:
+            移動 + Measure の操作列
+        """
+        ops: List[Operation] = []
+        target_liz = self.architecture.get_liz_zones()[0].id
+
+        # LIZ 上の非ターゲットイオンを退避
+        ancilla_set = set(item[0] for item in pending_measures)
+        for ion in list(state.zone_contents.get(target_liz, [])):
+            if ion not in ancilla_set:
+                evict_dst = state.find_eviction_destination(target_liz)
+                if evict_dst is not None:
+                    ops.extend(self._move_ion_to_zone(ion, evict_dst, state))
+
+        # アンシラを全てLIZに集める
+        for ancilla_id, _, _ in pending_measures:
+            if state.locate(ancilla_id) != target_liz:
+                ops.extend(self._move_ion_to_zone(ancilla_id, target_liz, state))
+
+        # バッチMeasure: 全アンシラを一括測定
+        all_targets = [item[0] for item in pending_measures]
+        batch_measure = MeasureOp(targets=all_targets, zone_id=target_liz)
+        ops.append(batch_measure)
+
+        return ops
+
     # ------------------------------------------
     # Gate Execution
     # ------------------------------------------
@@ -485,14 +589,45 @@ class MovementPlanner:
     def _find_executable_node(
         self, dag: DAG, front_layer: Set[int], state: QCCDState
     ) -> Optional[DAGNode]:
-        """Front Layerから実行可能なノードを探す"""
-        for node_id in sorted(front_layer):
-            node = dag.nodes[node_id]
+        """Front Layerから実行可能なノードを探す
+
+        interleaveモード時: MS gate実行後に他のスタビライザのノードを優先
+        """
+        def is_executable(node):
             op = node.operation
             if isinstance(op, GateOp) and state.can_execute(op):
-                return node
+                return True
             if isinstance(op, (ResetOp, MeasureOp)) and state.can_execute_reset_measure(op):
-                return node
+                return True
+            return False
+
+        if not self.config.interleave:
+            # 従来通り: min_id
+            for node_id in sorted(front_layer):
+                node = dag.nodes[node_id]
+                if is_executable(node):
+                    return node
+            return None
+
+        # === Interleave モード ===
+        # MS gate 実行直後 → 他のスタビライザを優先
+        preferred = []   # 優先スタビライザのノード
+        fallback = []    # それ以外
+
+        for node_id in sorted(front_layer):
+            node = dag.nodes[node_id]
+            if not is_executable(node):
+                continue
+            if self._last_ms_stabilizer is not None and node.stabilizer_id != self._last_ms_stabilizer:
+                preferred.append(node)
+            else:
+                fallback.append(node)
+
+        # 優先グループから選択、なければフォールバック
+        if preferred:
+            return preferred[0]
+        if fallback:
+            return fallback[0]
         return None
 
     def _annotate_gate(self, op: Operation, state: QCCDState) -> Operation:
@@ -518,9 +653,18 @@ class MovementPlanner:
         """
         Front Layerの最優先ノードに必要な移動操作を生成
 
-        優先順: node_idの昇順で最初に移動が必要なノードを処理
+        優先順: interleaveモード時は他のスタビライザを優先、通常はnode_id昇順
         """
-        for node_id in sorted(front_layer):
+        # Interleaveモード: 他のスタビライザのノードを先に処理
+        sorted_ids = sorted(front_layer)
+        if self.config.interleave and self._last_ms_stabilizer is not None:
+            preferred = [nid for nid in sorted_ids
+                         if dag.nodes[nid].stabilizer_id != self._last_ms_stabilizer]
+            others = [nid for nid in sorted_ids
+                      if dag.nodes[nid].stabilizer_id == self._last_ms_stabilizer]
+            sorted_ids = preferred + others
+
+        for node_id in sorted_ids:
             node = dag.nodes[node_id]
             op = node.operation
 

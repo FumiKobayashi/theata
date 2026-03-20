@@ -34,7 +34,8 @@ class DAGNode:
     operation: Operation             # 対応するAST操作
     predecessors: Set[int] = field(default_factory=set)  # 依存先ノードID
     successors: Set[int] = field(default_factory=set)    # 後続ノードID
-    
+    stabilizer_id: Optional[int] = None  # 所属スタビライザのアンシラID（parallel時）
+
     def __repr__(self):
         return f"Node({self.id}, {self.operation.type}, pred={self.predecessors}, succ={self.successors})"
 
@@ -222,9 +223,12 @@ class DAGBuilder:
         self.stabilizer_parallel = stabilizer_parallel
         self.dag = DAG()
         self.node_counter = 0
-        
+
         # 各ion_idの最後の操作を追跡（通常モード用）
         self.last_op_for_ion: Dict[int, int] = {}
+
+        # MEASURE対象からアンシラIDを事前取得（RESETなし回路対応）
+        self._known_ancillas: Set[int] = self._prescan_ancillas(program)
         
         # スタビライザ並列モード用
         # ancilla_id -> {ion_id -> last_node_id}
@@ -233,7 +237,11 @@ class DAGBuilder:
         self.completed_stabilizers: Set[int] = set()  # 完了したアンシラ
         # アンシラ再利用対応: 各アンシラの最後のMEASUREノードID
         self.last_measure_per_ancilla: Dict[int, int] = {}
-        
+        # スタビライザの出現順序（interleave用）
+        self.stabilizer_order: List[int] = []
+        # stabilizer_id未割当のノード（後から割り当てる）
+        self._pending_stabilizer_nodes: List[int] = []
+
         # 除外された操作を保存（後段で使用可能）
         self.excluded_movements: List[Operation] = []
         self.measurements: List[MeasureOp] = []
@@ -249,7 +257,17 @@ class DAGBuilder:
         if len(op.targets) == 1:
             return op.targets[0]
         return None
-    
+
+    @staticmethod
+    def _prescan_ancillas(program: "Program") -> Set[int]:
+        """MEASURE対象からアンシラIDを事前取得"""
+        ancillas = set()
+        for op in program.instructions:
+            if isinstance(op, MeasureOp):
+                for t in op.targets:
+                    ancillas.add(t)
+        return ancillas
+
     def _is_dag_operation(self, op: Operation) -> bool:
         """DAGに含める操作かどうかを判定"""
         # 移動操作は除外
@@ -300,7 +318,7 @@ class DAGBuilder:
             
             if self.stabilizer_parallel:
                 # === スタビライザ並列モード ===
-                
+
                 # RESET検出: 新しいスタビライザ開始
                 if isinstance(op, ResetOp):
                     ancilla = self._get_ancilla_from_reset(op)
@@ -308,22 +326,47 @@ class DAGBuilder:
                         # 同じアンシラの前回のMEASUREがあれば依存を追加
                         if ancilla in self.last_measure_per_ancilla:
                             predecessor_ids.add(self.last_measure_per_ancilla[ancilla])
-                        
+
                         self.active_stabilizer = ancilla
                         self.last_op_per_stabilizer[ancilla] = {}
-                
+                        if ancilla not in self.completed_stabilizers:
+                            self.stabilizer_order.append(ancilla)
+
+                # RESETなし回路対応: R/MS gateからアンシラを検出してスタビライザ開始
+                if self.active_stabilizer is None:
+                    ancilla_candidates = [t for t in affected_ions if t in self._known_ancillas]
+                    if ancilla_candidates:
+                        ancilla = ancilla_candidates[0]
+                        self.active_stabilizer = ancilla
+                        if ancilla not in self.last_op_per_stabilizer:
+                            self.last_op_per_stabilizer[ancilla] = {}
+                        if ancilla not in set(self.stabilizer_order):
+                            self.stabilizer_order.append(ancilla)
+                        # 未割当ノードを遡及的に割り当て
+                        for pending_id in self._pending_stabilizer_nodes:
+                            self.dag.nodes[pending_id].stabilizer_id = ancilla
+                            # 依存関係もスタビライザ内で構築
+                            pending_node = self.dag.nodes[pending_id]
+                            for ion_id in self._get_affected_ions(pending_node.operation):
+                                self.last_op_per_stabilizer[ancilla][ion_id] = pending_id
+                        self._pending_stabilizer_nodes = []
+
                 # アクティブなスタビライザがあれば、その中で依存関係を構築
                 if self.active_stabilizer is not None:
+                    node.stabilizer_id = self.active_stabilizer
                     last_op_dict = self.last_op_per_stabilizer[self.active_stabilizer]
-                    
+
                     for ion_id in affected_ions:
                         if ion_id in last_op_dict:
                             predecessor_ids.add(last_op_dict[ion_id])
-                    
+
                     # 最後の操作を更新
                     for ion_id in affected_ions:
                         last_op_dict[ion_id] = node.id
-                
+                else:
+                    # まだスタビライザ未検出: pending に追加
+                    self._pending_stabilizer_nodes.append(node.id)
+
                 # MEASURE検出: このスタビライザ終了
                 if isinstance(op, MeasureOp):
                     ancilla = self._get_ancilla_from_measure(op)
@@ -348,6 +391,100 @@ class DAGBuilder:
         
         self.dag.compute_entry_exit()
         return self.dag
+
+    def get_stabilizer_pairs(self) -> List[tuple]:
+        """連続するスタビライザのペアを返す（interleave用）"""
+        pairs = []
+        order = self.stabilizer_order
+        i = 0
+        while i + 1 < len(order):
+            pairs.append((order[i], order[i + 1]))
+            i += 2
+        return pairs
+
+    def add_hook_error_edges(self, pairs: List[tuple] = None):
+        """
+        Hook error avoidance エッジを追加
+
+        各スタビライザペアの共有データ量子ビットについて、
+        先頭スタビライザのCNOTブロック終了 → 後続スタビライザのCNOTブロック開始
+        のエッジを追加する。
+
+        条件: T(A_1) < T(B_1) かつ T(A_2) < T(B_2) を保証
+        （Aが先頭、Bが後続）
+        """
+        if pairs is None:
+            pairs = self.get_stabilizer_pairs()
+
+        for stab_a, stab_b in pairs:
+            # 各スタビライザのMS gateノードを収集
+            a_ms_nodes = []
+            b_ms_nodes = []
+            for node in self.dag.nodes.values():
+                if node.stabilizer_id == stab_a and isinstance(node.operation, GateOp) and node.operation.type == 'MS':
+                    a_ms_nodes.append(node)
+                if node.stabilizer_id == stab_b and isinstance(node.operation, GateOp) and node.operation.type == 'MS':
+                    b_ms_nodes.append(node)
+
+            # 各MS gateのデータ量子ビットを特定
+            # アンシラ = stab_a or stab_b
+            a_data_map = {}  # data_qubit -> node
+            for n in a_ms_nodes:
+                data_qubits = [t for t in n.operation.targets if t != stab_a]
+                for dq in data_qubits:
+                    a_data_map[dq] = n
+
+            b_data_map = {}
+            for n in b_ms_nodes:
+                data_qubits = [t for t in n.operation.targets if t != stab_b]
+                for dq in data_qubits:
+                    b_data_map[dq] = n
+
+            # 共有データ量子ビット
+            shared_qubits = set(a_data_map.keys()) & set(b_data_map.keys())
+
+            for sq in shared_qubits:
+                a_ms_node = a_data_map[sq]
+                b_ms_node = b_data_map[sq]
+
+                # A のCNOTブロック最終ノード（MS nodeのsuccessor chain内で
+                # 同じスタビライザのpost-rotation R gatesの最後）を見つける
+                a_last = self._find_cnot_block_end(a_ms_node, stab_a, sq)
+                # B のCNOTブロック最初のノード（MS nodeのpredecessor chain内で
+                # 同じスタビライザのpre-rotation R gatesの最初）を見つける
+                b_first = self._find_cnot_block_start(b_ms_node, stab_b, sq)
+
+                # Hook error avoidance エッジ: A の CNOT 完了 → B の CNOT 開始
+                self.dag.add_edge(a_last.id, b_first.id)
+
+        # エッジ追加後にentry/exitを再計算
+        self.dag.compute_entry_exit()
+
+    def _find_cnot_block_end(self, ms_node: DAGNode, stab_id: int, data_qubit: int) -> DAGNode:
+        """MS gateの後続post-rotation Rの最後のノードを返す"""
+        current = ms_node
+        # MS → post-R chain: 同じスタビライザ内で同じdata_qubitまたはancilla(=stab_id)を操作するR
+        for succ_id in sorted(ms_node.successors):
+            succ = self.dag.nodes[succ_id]
+            if succ.stabilizer_id == stab_id and isinstance(succ.operation, GateOp) and succ.operation.type == 'R':
+                if data_qubit in succ.operation.targets or stab_id in succ.operation.targets:
+                    # post-rotation R: さらに先を探す
+                    deeper = self._find_cnot_block_end(succ, stab_id, data_qubit)
+                    if deeper.id > current.id:
+                        current = deeper
+        return current
+
+    def _find_cnot_block_start(self, ms_node: DAGNode, stab_id: int, data_qubit: int) -> DAGNode:
+        """MS gateの先行pre-rotation Rの最初のノードを返す"""
+        current = ms_node
+        for pred_id in sorted(ms_node.predecessors):
+            pred = self.dag.nodes[pred_id]
+            if pred.stabilizer_id == stab_id and isinstance(pred.operation, GateOp) and pred.operation.type == 'R':
+                if data_qubit in pred.operation.targets or stab_id in pred.operation.targets:
+                    deeper = self._find_cnot_block_start(pred, stab_id, data_qubit)
+                    if deeper.id < current.id:
+                        current = deeper
+        return current
 
 
 def build_dag(program: Program) -> DAG:

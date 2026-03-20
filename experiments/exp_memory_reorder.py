@@ -166,7 +166,7 @@ def run_comparison(circuit_module_name: str):
         print(f"  {k:<10} {base_dist[k]:>10} {opt_dist[k]:>10}")
 
     # 結果を保存
-    output_dir = Path(__file__).parent.parent / 'results'
+    output_dir = Path(__file__).parent.parent / 'results' / 'memory_reorder'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     for r, label in [(base, "baseline"), (opt, "optimized")]:
@@ -214,7 +214,7 @@ def run_all(circuit_names: list):
             print(f"  {name:<30} {b:>10.2f} {o:>10.2f} {diff:>+10.2f} {pct:>+7.1f}%")
 
     # Save JSON summary
-    output_dir = Path(__file__).parent.parent / 'results'
+    output_dir = Path(__file__).parent.parent / 'results' / 'memory_reorder'
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 

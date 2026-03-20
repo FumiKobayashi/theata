@@ -283,7 +283,7 @@ def run_parallel_analysis(circuit_module_name: str):
     print(f"  Speedup:         {par_estimation.speedup:.2f}x")
 
     # 出力
-    output_dir = Path(__file__).parent.parent / 'results'
+    output_dir = Path(__file__).parent.parent / 'results' / 'parallel'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     metadata = {
