@@ -63,13 +63,23 @@ MEMORY_RIGHT = 5
 # ==========================================
 
 def placement_baseline(data_qubits, ancilla_qubits):
-    """従来配置: データ=左Memory, アンシラ=右Memory"""
+    """従来配置: データ=左Memory（容量超過時は右に溢れ）, アンシラ=右Memory
+
+    データは逆順（大きいIDが左端）で左Memoryに配置。
+    容量を超える分は右Memoryに溢れる。
+    """
     initial = {}
-    for qid in data_qubits:
-        initial[8 - qid] = MEMORY_LEFT
+    # データを逆順で左Memoryに配置（容量制限あり）
+    sorted_data = sorted(data_qubits, reverse=True)
+    for i, qid in enumerate(sorted_data):
+        if i < MEMORY_CAPACITY:
+            initial[qid] = MEMORY_LEFT
+        else:
+            initial[qid] = MEMORY_RIGHT
+    # アンシラを右Memoryに配置
     for qid in ancilla_qubits:
         initial[qid] = MEMORY_RIGHT
-    return initial
+    return _enforce_capacity(initial)
 
 
 def placement_split_even(data_qubits, ancilla_qubits):
@@ -96,7 +106,7 @@ def placement_split_even(data_qubits, ancilla_qubits):
     for qid in data_qubits[data_half:]:
         initial[qid] = MEMORY_RIGHT
 
-    return initial
+    return _enforce_capacity(initial)
 
 
 def placement_by_stabilizer(data_qubits, ancilla_qubits, circuit_module):
@@ -144,7 +154,7 @@ def placement_by_stabilizer(data_qubits, ancilla_qubits, circuit_module):
         if qid not in initial:
             initial[qid] = MEMORY_RIGHT
 
-    return initial
+    return _enforce_capacity(initial)
 
 
 def placement_greedy_alternate(data_qubits, ancilla_qubits, circuit_module):
@@ -195,6 +205,26 @@ def placement_greedy_alternate(data_qubits, ancilla_qubits, circuit_module):
     for qid in right_order:
         initial[qid] = MEMORY_RIGHT
 
+    return _enforce_capacity(initial)
+
+
+def _enforce_capacity(initial):
+    """Memory容量を超過している場合、溢れたqubitを反対側に移動する"""
+    left = [q for q, z in initial.items() if z == MEMORY_LEFT]
+    right = [q for q, z in initial.items() if z == MEMORY_RIGHT]
+
+    # 左が超過 → 超過分を右に移動（先頭=LIZから遠い側から移動）
+    while len(left) > MEMORY_CAPACITY:
+        q = left.pop(0)
+        initial[q] = MEMORY_RIGHT
+        right.append(q)
+
+    # 右が超過 → 超過分を左に移動（末尾=LIZから遠い側から移動）
+    while len(right) > MEMORY_CAPACITY:
+        q = right.pop(-1)
+        initial[q] = MEMORY_LEFT
+        left.append(q)
+
     return initial
 
 
@@ -204,7 +234,7 @@ def placement_random(data_qubits, ancilla_qubits, rng: random.Random):
     all_qubits = list(data_qubits) + list(ancilla_qubits)
     for qid in all_qubits:
         initial[qid] = rng.choice([MEMORY_LEFT, MEMORY_RIGHT])
-    return initial
+    return _enforce_capacity(initial)
 
 
 # ==========================================
