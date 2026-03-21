@@ -27,7 +27,7 @@ from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from estimator import Estimator
 from parallel_estimator import ParallelEstimator, save_parallel_txt
-from validator import validate_operations
+from validator import validate_operations, validate_timesteps
 
 # ==========================================
 # 設定
@@ -77,6 +77,7 @@ def compile_circuit(circuit_module_name: str, memory_reorder: bool):
 
     # Validation
     validation = validate_operations(result.operations, initial, arch, verbose=False)
+    par_validation = validate_timesteps(result.timesteps, initial, arch, verbose=False)
 
     # Time estimation
     seq_est = Estimator().estimate(result.operations)
@@ -89,6 +90,7 @@ def compile_circuit(circuit_module_name: str, memory_reorder: bool):
         "initial": initial,
         "arch": arch,
         "validation": validation,
+        "par_validation": par_validation,
         "seq_time": seq_est.total_time,
         "par_time": par_est.total_time,
         "par_estimation": par_est,

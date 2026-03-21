@@ -41,7 +41,7 @@ from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from estimator import Estimator
 from parallel_estimator import ParallelEstimator, save_parallel_txt
-from validator import validate_operations
+from validator import validate_operations, validate_timesteps
 
 # ==========================================
 # 設定
@@ -271,6 +271,7 @@ def compile_with_placement(circuit_module_name: str, initial: dict,
     result = compiler.compile(dag, initial)
 
     validation = validate_operations(result.operations, initial, arch, verbose=False)
+    par_validation = validate_timesteps(result.timesteps, initial, arch, verbose=False)
     seq_est = Estimator().estimate(result.operations)
     par_est = ParallelEstimator().estimate(result.timesteps)
 
@@ -280,7 +281,7 @@ def compile_with_placement(circuit_module_name: str, initial: dict,
         "seq_time_ms": seq_est.total_time / 1000,
         "par_time_ms": par_est.total_time / 1000,
         "stats": result.stats,
-        "valid": validation.is_valid,
+        "valid": validation.is_valid and par_validation.is_valid,
         "initial": initial,
         "result": result,
         "arch": arch,

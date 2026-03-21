@@ -28,7 +28,7 @@ from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from estimator import Estimator
 from parallel_estimator import ParallelEstimator, save_parallel_txt
-from validator import validate_operations
+from validator import validate_operations, validate_timesteps
 from ast_def import GateOp, MeasureOp
 
 # ==========================================
@@ -87,6 +87,7 @@ def compile_circuit(circuit_module_name: str, interleave: bool, batch_size: int,
     result = compiler.compile(dag, initial)
 
     validation = validate_operations(result.operations, initial, arch, verbose=False)
+    par_validation = validate_timesteps(result.timesteps, initial, arch, verbose=False)
     seq_est = Estimator().estimate(result.operations)
     par_est = ParallelEstimator().estimate(result.timesteps)
 
@@ -105,6 +106,7 @@ def compile_circuit(circuit_module_name: str, interleave: bool, batch_size: int,
         "initial": initial,
         "arch": arch,
         "validation": validation,
+        "par_validation": par_validation,
         "seq_time": seq_est.total_time,
         "par_time": par_est.total_time,
         "par_estimation": par_est,
@@ -132,10 +134,11 @@ def run_comparison(circuit_module_name: str):
     for label, interleave, batch in configs:
         r = compile_circuit(circuit_module_name, interleave=interleave, batch_size=batch)
         results[label] = r
-        status = "PASS" if r["validation"].is_valid else "FAIL"
+        status = "PASS" if (r["validation"].is_valid and r["par_validation"].is_valid) else "FAIL"
         print(f"  [{label}] Validation: {status}")
-        if not r["validation"].is_valid:
-            for e in r["validation"].errors[:3]:
+        if not r["validation"].is_valid or not r["par_validation"].is_valid:
+            all_errors = r["validation"].errors + r["par_validation"].errors
+            for e in all_errors[:3]:
                 print(f"    {e}")
 
     # Summary table
@@ -251,7 +254,7 @@ def run_all(circuit_names: list):
                 "sequential_time_ms": r["seq_time"] / 1000,
                 "parallel_time_ms": r["par_time"] / 1000,
                 "stats": r["stats"],
-                "valid": r["validation"].is_valid,
+                "valid": r["validation"].is_valid and r["par_validation"].is_valid,
             }
         summary["results"].append(entry)
 

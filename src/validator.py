@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional
 
 from ast_def import (
-    Operation, GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp
+    Operation, GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp,
+    TimeStep
 )
 from qccd_compiler import QCCDArchitecture
 
@@ -435,8 +436,14 @@ class Validator:
             err("swap_in_temp",
                 f"Swap in Temporary zone {zone_a} is not allowed")
 
-        # 隣接チェック
+        # 2イオン制約: Swap実行時はゾーンに2イオンのみ
         contents = state.zone_contents[zone_a]
+        if len(contents) != 2:
+            err("swap_not_two_ions",
+                f"Swap requires exactly 2 ions in zone {zone_a}, "
+                f"but found {len(contents)}: {contents}")
+
+        # 隣接チェック
         pos_a = contents.index(ion_a)
         pos_b = contents.index(ion_b)
         if abs(pos_a - pos_b) != 1:
@@ -479,6 +486,155 @@ class Validator:
 
 
 # ==========================================
+# 並列 Validator
+# ==========================================
+
+class ParallelValidator:
+    """
+    TimeStep 単位の並列命令列を検証する
+
+    Sequential Validator との違い:
+    1. 同一TimeStep内のops間にゾーン競合がないか検証
+    2. 同一TimeStep内のopsが同一ionを操作していないか検証
+    3. 全opsをTimeStep開始時のスナップショットに対して検証
+       （Sequential Validatorは前のopの結果を次のopが見る）
+    """
+
+    def __init__(self, architecture: QCCDArchitecture):
+        self.architecture = architecture
+        self._seq_validator = Validator(architecture)
+
+    def _zones_used(self, op: Operation) -> Set[int]:
+        """1つのopが使用するゾーンを返す（Schedulerの_zones_usedと同等）"""
+        if isinstance(op, SplitOp):
+            zones = {op.src_zone_id, op.dst_zone_id}
+            zones.discard(-1)
+            return zones
+        if isinstance(op, MergeOp):
+            return {op.zone_left, op.zone_right}
+        if isinstance(op, ShuttleOp):
+            zones = set()
+            if op.src_zone != -1:
+                zones.add(op.src_zone)
+            dst_zone = op.dst.trap if hasattr(op.dst, 'trap') else op.dst[0]
+            if dst_zone != -1:
+                zones.add(dst_zone)
+            return zones
+        if isinstance(op, SwapOp):
+            return {op.zone_id} if hasattr(op, 'zone_id') and op.zone_id != -1 else set()
+        if isinstance(op, (GateOp, MeasureOp, ResetOp)):
+            return set()  # ゲートはLIZ上で実行、ゾーンはlocateで取得
+        return set()
+
+    def _ions_used(self, op: Operation) -> Set[int]:
+        """1つのopが操作するionのIDを返す"""
+        if isinstance(op, SplitOp):
+            return {op.ion_id}
+        if isinstance(op, ShuttleOp):
+            return {op.target}
+        if isinstance(op, (SwapOp, GateOp, MeasureOp, ResetOp)):
+            return set(op.targets)
+        if isinstance(op, MergeOp):
+            return set()  # Mergeはzone操作、特定ionを指定しない
+        return set()
+
+    def validate(
+        self,
+        timesteps: List[TimeStep],
+        initial_placement: Dict[int, int],
+    ) -> ValidationResult:
+        """
+        TimeStep列を検証する
+
+        Args:
+            timesteps: 並列TimeStep列
+            initial_placement: ion_id -> zone_id の初期配置
+
+        Returns:
+            ValidationResult
+        """
+        state = _ValidatorState(self.architecture)
+        for ion_id, zone_id in initial_placement.items():
+            state.place_ion(ion_id, zone_id)
+
+        result = ValidationResult()
+        expected_ions = state.all_ions().copy()
+        global_step = 0
+
+        # 初期配置の容量チェック
+        for zone in self.architecture.zones:
+            count = state.zone_count(zone.id)
+            if count > zone.capacity:
+                result.errors.append(ValidationError(
+                    step=-1,
+                    operation=None,
+                    constraint="zone_capacity",
+                    message=f"Initial placement exceeds zone {zone.id} capacity: "
+                            f"{count} > {zone.capacity}",
+                ))
+
+        for ts_idx, ts in enumerate(timesteps):
+            ops = ts.ops
+
+            # --- 並列固有の検証（TimeStep開始時の状態で） ---
+
+            # 1. ゾーン競合チェック
+            for i in range(len(ops)):
+                zones_i = self._zones_used(ops[i])
+                for j in range(i + 1, len(ops)):
+                    zones_j = self._zones_used(ops[j])
+                    overlap = zones_i & zones_j
+                    if overlap:
+                        result.errors.append(ValidationError(
+                            step=global_step + i,
+                            operation=ops[i],
+                            constraint="parallel_zone_conflict",
+                            message=f"TS{ts_idx}: ops[{i}] and ops[{j}] share "
+                                    f"zone(s) {overlap}. "
+                                    f"op_i={ops[i]}, op_j={ops[j]}",
+                        ))
+
+            # 2. 同一ion操作チェック
+            for i in range(len(ops)):
+                ions_i = self._ions_used(ops[i])
+                for j in range(i + 1, len(ops)):
+                    ions_j = self._ions_used(ops[j])
+                    overlap = ions_i & ions_j
+                    if overlap:
+                        result.errors.append(ValidationError(
+                            step=global_step + i,
+                            operation=ops[i],
+                            constraint="parallel_ion_conflict",
+                            message=f"TS{ts_idx}: ops[{i}] and ops[{j}] operate "
+                                    f"on same ion(s) {overlap}. "
+                                    f"op_i={ops[i]}, op_j={ops[j]}",
+                        ))
+
+            # 3. 各opをTimeStep開始時のスナップショットに対して検証
+            snapshot = state.snapshot()
+            for i, op in enumerate(ops):
+                # スナップショットからの一時stateで検証
+                temp_state = _ValidatorState(self.architecture)
+                for zid, ions in snapshot.items():
+                    for ion in ions:
+                        temp_state.place_ion(ion, zid)
+                self._seq_validator._validate_step(
+                    global_step + i, op, temp_state, expected_ions, result
+                )
+
+            # 4. 全opsを実stateに適用（順序は任意、並列なので）
+            for i, op in enumerate(ops):
+                self._seq_validator._validate_step(
+                    global_step + i, op, state, expected_ions,
+                    ValidationResult()  # エラーは既に検出済み、状態更新のみ
+                )
+
+            global_step += len(ops)
+
+        return result
+
+
+# ==========================================
 # 便利関数
 # ==========================================
 
@@ -489,21 +645,48 @@ def validate_operations(
     verbose: bool = True,
 ) -> ValidationResult:
     """
-    命令列を検証するヘルパー関数
-    
+    命令列を検証するヘルパー関数（Sequential）
+
     Args:
         operations: 命令列
         initial_placement: 初期配置
         architecture: アーキテクチャ
         verbose: 結果を表示するか
-    
+
     Returns:
         ValidationResult
     """
     validator = Validator(architecture)
     result = validator.validate(operations, initial_placement)
-    
+
     if verbose:
         print(result.summary())
-    
+
+    return result
+
+
+def validate_timesteps(
+    timesteps: List[TimeStep],
+    initial_placement: Dict[int, int],
+    architecture: QCCDArchitecture,
+    verbose: bool = True,
+) -> ValidationResult:
+    """
+    並列TimeStep列を検証するヘルパー関数
+
+    Args:
+        timesteps: TimeStep列
+        initial_placement: 初期配置
+        architecture: アーキテクチャ
+        verbose: 結果を表示するか
+
+    Returns:
+        ValidationResult
+    """
+    validator = ParallelValidator(architecture)
+    result = validator.validate(timesteps, initial_placement)
+
+    if verbose:
+        print(result.summary())
+
     return result

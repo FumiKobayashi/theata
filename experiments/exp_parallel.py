@@ -28,7 +28,7 @@ from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from estimator import Estimator
 from parallel_estimator import ParallelEstimator, format_timesteps_text, save_parallel_txt
-from validator import validate_operations
+from validator import validate_operations, validate_timesteps
 
 
 # ==========================================
@@ -215,14 +215,21 @@ def run_parallel_analysis(circuit_module_name: str):
     # 検証
     print(f"\n[Validation]")
     validation = validate_operations(result.operations, initial, arch, verbose=False)
-    if validation.is_valid:
-        print(f"  PASSED ({len(result.operations)} operations verified)")
+    par_validation = validate_timesteps(result.timesteps, initial, arch, verbose=False)
+    seq_ok = validation.is_valid
+    par_ok = par_validation.is_valid
+    if seq_ok and par_ok:
+        print(f"  Sequential: PASSED ({len(result.operations)} operations verified)")
+        print(f"  Parallel:   PASSED ({len(result.timesteps)} timesteps verified)")
     else:
-        print(f"  FAILED: {len(validation.errors)} error(s)")
-        for e in validation.errors[:10]:
-            print(f"    {e}")
-        if len(validation.errors) > 10:
-            print(f"    ... and {len(validation.errors) - 10} more")
+        if not seq_ok:
+            print(f"  Sequential: FAILED: {len(validation.errors)} error(s)")
+            for e in validation.errors[:10]:
+                print(f"    {e}")
+        if not par_ok:
+            print(f"  Parallel: FAILED: {len(par_validation.errors)} error(s)")
+            for e in par_validation.errors[:10]:
+                print(f"    {e}")
 
     # 時間推定（逐次 vs 並列）
     seq_estimation = Estimator().estimate(result.operations)
