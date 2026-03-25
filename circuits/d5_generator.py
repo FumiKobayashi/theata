@@ -1,87 +1,83 @@
 """
-Distance-5 Rotated Surface Code 回路生成器
-
-Data qubits: 0-24 (5x5 grid)
-   0  1  2  3  4
-   5  6  7  8  9
-  10 11 12 13 14
-  15 16 17 18 19
-  20 21 22 23 24
-
-Stabilizers: 24 (12 X-type + 12 Z-type)
+Rotated Surface Code 回路生成器 (任意の符号距離)
 
 Hook error avoiding CNOT order:
   X stabilizers (Z-pattern): NW -> NE -> SW -> SE
-  Z stabilizers (reverse-N): NW -> SW -> NE -> SE
+  Z stabilizers (reverse-N): NE -> SE -> NW -> SW
 
 使い方:
-  python d5_generator.py           # reuse1とreuse2を生成
+  python d5_generator.py           # d=5, d=7 の reuse1/reuse2 を生成
+  python d5_generator.py 5         # d=5 のみ
+  python d5_generator.py 7         # d=7 のみ
 """
 
-D = 5
-N_DATA = D * D  # 25
+import sys
 
 
-def qubit_id(r, c):
-    return r * D + c
+def qubit_id(r, c, d):
+    return r * d + c
 
 
 # ==========================================
 # Stabilizer Definitions
 # ==========================================
 
-def get_stabilizers():
-    """d=5 rotated surface code の全スタビライザを返す"""
+def get_stabilizers(d):
+    """d×d rotated surface code の全スタビライザを返す"""
     stabilizers = []
 
-    # Bulk plaquettes (4x4 grid)
-    for pr in range(D - 1):
-        for pc in range(D - 1):
-            nw = qubit_id(pr, pc)
-            ne = qubit_id(pr, pc + 1)
-            sw = qubit_id(pr + 1, pc)
-            se = qubit_id(pr + 1, pc + 1)
+    # Bulk plaquettes ((d-1)×(d-1) grid)
+    for pr in range(d - 1):
+        for pc in range(d - 1):
+            nw = qubit_id(pr, pc, d)
+            ne = qubit_id(pr, pc + 1, d)
+            sw = qubit_id(pr + 1, pc, d)
+            se = qubit_id(pr + 1, pc + 1, d)
 
             if (pr + pc) % 2 == 0:
                 # X-type (Z-pattern): NW -> NE -> SW -> SE
                 stabilizers.append(("X", [nw, ne, sw, se], (pr, pc)))
             else:
-                # Z-type (reverse-N): NW -> SW -> NE -> SE
-                stabilizers.append(("Z", [nw, sw, ne, se], (pr, pc)))
+                # Z-type (reverse-N): NE -> SE -> NW -> SW
+                stabilizers.append(("Z", [ne, se, nw, sw], (pr, pc)))
 
     # Boundary stabilizers
     # Left boundary (Z-type, weight 2)
-    for pr in range(D - 1):
+    for pr in range(d - 1):
         if (pr + (-1)) % 2 == 1:  # Z-type at odd parity
-            n = qubit_id(pr, 0)
-            s = qubit_id(pr + 1, 0)
+            n = qubit_id(pr, 0, d)
+            s = qubit_id(pr + 1, 0, d)
+            # NE->SE->NW->SW: only W column exists, so NW->SW = N->S
             stabilizers.append(("Z", [n, s], ("left", pr)))
 
     # Right boundary (Z-type, weight 2)
-    for pr in range(D - 1):
-        if (pr + (D - 1)) % 2 == 1:  # Z-type at odd parity
-            n = qubit_id(pr, D - 1)
-            s = qubit_id(pr + 1, D - 1)
+    for pr in range(d - 1):
+        if (pr + (d - 1)) % 2 == 1:  # Z-type at odd parity
+            n = qubit_id(pr, d - 1, d)
+            s = qubit_id(pr + 1, d - 1, d)
+            # NE->SE->NW->SW: only E column exists, so NE->SE = N->S
             stabilizers.append(("Z", [n, s], ("right", pr)))
 
     # Top boundary (X-type, weight 2)
-    for pc in range(D - 1):
+    for pc in range(d - 1):
         if ((-1) + pc) % 2 == 0:  # X-type at even parity
-            w = qubit_id(0, pc)
-            e = qubit_id(0, pc + 1)
+            w = qubit_id(0, pc, d)
+            e = qubit_id(0, pc + 1, d)
+            # NW->NE->SW->SE: only N row exists, so NW->NE = W->E
             stabilizers.append(("X", [w, e], ("top", pc)))
 
     # Bottom boundary (X-type, weight 2)
-    for pc in range(D - 1):
-        if ((D - 1) + pc) % 2 == 0:  # X-type at even parity
-            w = qubit_id(D - 1, pc)
-            e = qubit_id(D - 1, pc + 1)
+    for pc in range(d - 1):
+        if ((d - 1) + pc) % 2 == 0:  # X-type at even parity
+            w = qubit_id(d - 1, pc, d)
+            e = qubit_id(d - 1, pc + 1, d)
+            # NW->NE->SW->SE: only S row exists, so SW->SE = W->E
             stabilizers.append(("X", [w, e], ("bottom", pc)))
 
     return stabilizers
 
 
-def get_snake_order(stabilizers):
+def get_snake_order(stabilizers, d):
     """蛇行順でスタビライザを並べ替える
 
     Bulk plaquettes を蛇行順に並べ、boundary stabilizers を適切な位置に挿入
@@ -100,7 +96,7 @@ def get_snake_order(stabilizers):
 
     # 蛇行順
     ordered = []
-    for pr in range(D - 1):
+    for pr in range(d - 1):
         row = sorted(bulk_by_row.get(pr, []), key=lambda x: x[0])
         if pr % 2 == 1:
             row = list(reversed(row))
@@ -129,11 +125,9 @@ def get_snake_order(stabilizers):
 
         # 行の終わりに top/bottom boundary を挿入
         if pr == 0:
-            # Top boundary: 行の最後の列付近に挿入
             for tb in sorted(top_boundary, key=lambda s: s[2][1]):
                 ordered.append(tb)
-        if pr == D - 2:
-            # Bottom boundary: 最終行の後に
+        if pr == d - 2:
             for bb in sorted(bottom_boundary, key=lambda s: s[2][1]):
                 ordered.append(bb)
 
@@ -185,7 +179,6 @@ def x_finalize(ancilla):
 def generate_stabilizer_block(stab_type, data_qubits, ancilla):
     """1スタビライザの命令列を生成"""
     lines = []
-    lines.append(f"RESET {ancilla}")
 
     if stab_type == "Z":
         for dq in data_qubits:
@@ -200,28 +193,29 @@ def generate_stabilizer_block(stab_type, data_qubits, ancilla):
     return lines
 
 
-def generate_circuit(n_ancillas=1):
+def generate_circuit(d, n_ancillas=1):
     """完全な回路文字列を生成
 
     Args:
+        d: 符号距離
         n_ancillas: 使用するアンシラ数 (1 or 2)
     """
-    stabilizers = get_stabilizers()
-    ordered = get_snake_order(stabilizers)
+    n_data = d * d
+    stabilizers = get_stabilizers(d)
+    ordered = get_snake_order(stabilizers, d)
 
-    n_data = N_DATA
     ancilla_ids = list(range(n_data, n_data + n_ancillas))
 
     lines = []
     lines.append("# ============================================================")
-    lines.append(f"# Distance-5 Rotated Surface Code (reuse{n_ancillas})")
+    lines.append(f"# Distance-{d} Rotated Surface Code (reuse{n_ancillas})")
     lines.append("# ============================================================")
     lines.append("")
 
     # Qubit declarations
     lines.append("# Qubit Declarations")
     for i in range(n_data):
-        r, c = divmod(i, D)
+        r, c = divmod(i, d)
         lines.append(f"QUBIT {i} AT ({r}, {c})")
     for i, aid in enumerate(ancilla_ids):
         lines.append(f"QUBIT {aid} AT (10, {i})")
@@ -229,25 +223,34 @@ def generate_circuit(n_ancillas=1):
 
     # Instructions
     lines.append("# Instructions")
-    stab_info = []
     for idx, (stype, dqubits, pos) in enumerate(ordered):
         ancilla = ancilla_ids[idx % n_ancillas]
-        # Comment
         dq_str = ",".join(str(q) for q in dqubits)
         lines.append(f"# Stabilizer {idx+1}/{len(ordered)}: {stype}{{{dq_str}}} ancilla={ancilla}")
         block = generate_stabilizer_block(stype, dqubits, ancilla)
         lines.extend(block)
-        stab_info.append((stype, dqubits, ancilla, pos))
 
     return "\n".join(lines), ordered, ancilla_ids
 
 
-def write_circuit_file(n_ancillas):
-    """回路ファイルを生成して書き出す"""
-    circuit_str, ordered, ancilla_ids = generate_circuit(n_ancillas)
+def _grid_str(d):
+    """d×d grid の qubit ID 表示文字列"""
+    lines = []
+    width = len(str(d * d - 1))
+    for r in range(d):
+        row = [str(qubit_id(r, c, d)).rjust(width) for c in range(d)]
+        lines.append("  " + " ".join(row))
+    return "\n".join(lines)
 
-    n_data = N_DATA
+
+def write_circuit_file(d, n_ancillas):
+    """回路ファイルを生成して書き出す"""
+    n_data = d * d
+    circuit_str, ordered, ancilla_ids = generate_circuit(d, n_ancillas)
+
     all_qubits = n_data + len(ancilla_ids)
+    x_count = sum(1 for s in ordered if s[0] == "X")
+    z_count = sum(1 for s in ordered if s[0] == "Z")
 
     # Stabilizer order description
     stab_descs = []
@@ -256,23 +259,21 @@ def write_circuit_file(n_ancillas):
         stab_descs.append(f"{stype}{{{dq_str}}}")
     order_str = " -> ".join(stab_descs)
 
-    module_content = f'''"""
-d5_reuse{n_ancillas}
-Distance-5 Rotated Surface Code ({n_ancillas}アンシラ再利用)
+    grid = _grid_str(d)
 
-Data qubits: 0-24 (5x5 grid)
-   0  1  2  3  4
-   5  6  7  8  9
-  10 11 12 13 14
-  15 16 17 18 19
-  20 21 22 23 24
+    module_content = f'''"""
+d{d}_reuse{n_ancillas}
+Distance-{d} Rotated Surface Code ({n_ancillas}アンシラ再利用)
+
+Data qubits: 0-{n_data - 1} ({d}x{d} grid)
+{grid}
 
 Ancilla qubits: {ancilla_ids}
-Total stabilizers: {len(ordered)} (12 X-type + 12 Z-type)
+Total stabilizers: {len(ordered)} ({x_count} X-type + {z_count} Z-type)
 
 Hook error avoiding CNOT order:
   X stabilizers (Z-pattern): NW -> NE -> SW -> SE
-  Z stabilizers (reverse-N): NW -> SW -> NE -> SE
+  Z stabilizers (reverse-N): NE -> SE -> NW -> SW
 
 Execution order (snake):
   {order_str}
@@ -287,39 +288,43 @@ CIRCUIT = """
 {circuit_str}
 """
 '''
-    filename = f"d5_reuse{n_ancillas}.py"
+    filename = f"d{d}_reuse{n_ancillas}.py"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(module_content)
     print(f"Generated: {filename} ({len(ordered)} stabilizers, {all_qubits} qubits)")
-
-    # Summary
-    x_count = sum(1 for s in ordered if s[0] == "X")
-    z_count = sum(1 for s in ordered if s[0] == "Z")
     print(f"  X-type: {x_count}, Z-type: {z_count}")
     print(f"  Data: {n_data}, Ancilla: {ancilla_ids}")
 
 
 if __name__ == "__main__":
-    # Verify stabilizer count
-    stabilizers = get_stabilizers()
-    print(f"Total stabilizers: {len(stabilizers)}")
-    x = sum(1 for s in stabilizers if s[0] == "X")
-    z = sum(1 for s in stabilizers if s[0] == "Z")
-    print(f"  X-type: {x}, Z-type: {z}")
+    distances = [int(x) for x in sys.argv[1:]] if len(sys.argv) > 1 else [5, 7]
 
-    # Check all data qubits are covered
-    all_data = set()
-    for _, dq, _ in stabilizers:
-        all_data.update(dq)
-    print(f"  Data qubits covered: {sorted(all_data)}")
-    print(f"  Expected: {list(range(N_DATA))}")
+    for d in distances:
+        n_data = d * d
+        stabilizers = get_stabilizers(d)
+        print(f"=== d={d} ===")
+        print(f"Total stabilizers: {len(stabilizers)}")
+        x = sum(1 for s in stabilizers if s[0] == "X")
+        z = sum(1 for s in stabilizers if s[0] == "Z")
+        print(f"  X-type: {x}, Z-type: {z}")
 
-    ordered = get_snake_order(stabilizers)
-    print(f"\nSnake order ({len(ordered)} stabilizers):")
-    for i, (stype, dqubits, pos) in enumerate(ordered):
-        dq_str = ",".join(str(q) for q in dqubits)
-        print(f"  {i+1:2d}. {stype}{{{dq_str}}} at {pos}")
+        # Check all data qubits are covered
+        all_data = set()
+        for _, dq, _ in stabilizers:
+            all_data.update(dq)
+        expected = set(range(n_data))
+        if all_data == expected:
+            print(f"  All {n_data} data qubits covered OK")
+        else:
+            print(f"  WARNING: missing={expected - all_data}, extra={all_data - expected}")
 
-    print()
-    write_circuit_file(1)
-    write_circuit_file(2)
+        ordered = get_snake_order(stabilizers, d)
+        print(f"\nSnake order ({len(ordered)} stabilizers):")
+        for i, (stype, dqubits, pos) in enumerate(ordered):
+            dq_str = ",".join(str(q) for q in dqubits)
+            print(f"  {i+1:2d}. {stype}{{{dq_str}}} at {pos}")
+
+        print()
+        write_circuit_file(d, 1)
+        write_circuit_file(d, 2)
+        print()
