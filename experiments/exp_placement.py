@@ -435,6 +435,8 @@ def main():
                         help=f'Random seed (default: {RANDOM_SEED})')
     parser.add_argument('--liz-capacity', type=int, default=LIZ_CAPACITY,
                         help=f'LIZ capacity (default: {LIZ_CAPACITY})')
+    parser.add_argument('--memory-capacity', type=int, default=MEMORY_CAPACITY,
+                        help=f'Memory zone capacity (default: {MEMORY_CAPACITY})')
     args = parser.parse_args()
 
     seed = args.seed
@@ -442,11 +444,13 @@ def main():
     # モジュールレベル設定を上書き
     import sys
     sys.modules[__name__].LIZ_CAPACITY = args.liz_capacity
+    sys.modules[__name__].MEMORY_CAPACITY = args.memory_capacity
+    sys.modules[__name__].TEMP_CAPACITY = args.memory_capacity  # Temp >= Memory (Split時に必要)
 
     print("=" * 70)
     print("Initial Placement Experiment")
     print(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Architecture: T-M(z1)-T-L(z3, cap={LIZ_CAPACITY})-T-M(z5)-T")
+    print(f"Architecture: T-M(z1,cap={MEMORY_CAPACITY})-T-L(z3,cap={LIZ_CAPACITY})-T-M(z5,cap={MEMORY_CAPACITY})-T")
     print(f"Interleave: {'ON' if args.interleave else 'OFF'}")
     print(f"Random samples: {args.random_samples}")
     print("=" * 70)

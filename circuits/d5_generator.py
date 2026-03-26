@@ -223,12 +223,18 @@ def generate_circuit(d, n_ancillas=1):
 
     # Instructions
     lines.append("# Instructions")
+    total = len(ordered)
     for idx, (stype, dqubits, pos) in enumerate(ordered):
         ancilla = ancilla_ids[idx % n_ancillas]
         dq_str = ",".join(str(q) for q in dqubits)
-        lines.append(f"# Stabilizer {idx+1}/{len(ordered)}: {stype}{{{dq_str}}} ancilla={ancilla}")
+        lines.append(f"# Stabilizer {idx+1}/{total}: {stype}{{{dq_str}}} ancilla={ancilla}")
         block = generate_stabilizer_block(stype, dqubits, ancilla)
         lines.extend(block)
+        # MEASURE の後、同じアンシラを使うスタビライザが残っていれば RESET を挿入
+        remaining = [i for i in range(idx + 1, total)
+                     if ancilla_ids[i % n_ancillas] == ancilla]
+        if remaining:
+            lines.append(f"RESET {ancilla}")
 
     return "\n".join(lines), ordered, ancilla_ids
 
