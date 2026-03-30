@@ -210,15 +210,31 @@ class QCCDState:
     - Temporary Zoneは操作前後で空であること
     - move_ionは隣接ゾーン間のみ
     - SwapはTemporary Zoneでは実行不可
+
+    フォノン追跡:
+    - 各イオンの axial / transversal フォノン数を管理
+    - 同一チェイン内のイオンは同じフォノン数を持つ（不変条件）
+    - phonon_params が None の場合はフォノン追跡を無効化
     """
     architecture: QCCDArchitecture
     ion_locations: Dict[int, int] = field(default_factory=dict)   # ion_id -> zone_id
     zone_contents: Dict[int, List[int]] = field(default_factory=dict)  # zone_id -> [ion_ids]
+    phonon_axial: Dict[int, float] = field(default_factory=dict)       # ion_id -> axial phonon
+    phonon_transversal: Dict[int, float] = field(default_factory=dict) # ion_id -> transversal phonon
+    phonon_params: Optional[dict] = None  # フォノンパラメータ（Noneで無効化）
+    # MSゲート実行時のフォノン記録
+    phonon_at_gates: List[dict] = field(default_factory=list)
 
     def __post_init__(self):
         for zone in self.architecture.zones:
             if zone.id not in self.zone_contents:
                 self.zone_contents[zone.id] = []
+
+    def _init_phonon(self, ion_id: int):
+        """イオンのフォノン数を初期化"""
+        if ion_id not in self.phonon_axial:
+            self.phonon_axial[ion_id] = 0.0
+            self.phonon_transversal[ion_id] = 0.0
 
     def place_ion(self, ion_id: int, zone_id: int):
         """イオンをMemory Zoneに配置（初期配置用、Memory限定）"""
@@ -234,6 +250,7 @@ class QCCDState:
             raise ValueError(f"Zone {zone_id} is at capacity")
         self.ion_locations[ion_id] = zone_id
         self.zone_contents[zone_id].append(ion_id)
+        self._init_phonon(ion_id)
 
     def place_ion_any(self, ion_id: int, zone_id: int):
         """イオンを任意ゾーンに配置（Memory/LIZ/Temp対応、初期配置用）"""
@@ -244,6 +261,7 @@ class QCCDState:
             raise ValueError(f"Zone {zone_id} is at capacity")
         self.ion_locations[ion_id] = zone_id
         self.zone_contents[zone_id].append(ion_id)
+        self._init_phonon(ion_id)
 
     def locate(self, ion_id: int) -> int:
         if ion_id not in self.ion_locations:
@@ -341,6 +359,14 @@ class QCCDState:
         if abs(pos_a - pos_b) != 1:
             raise ValueError(f"Cannot swap non-adjacent ions")
         contents[pos_a], contents[pos_b] = contents[pos_b], contents[pos_a]
+        # フォノン: +0.1 (axial, transversal)
+        if self.phonon_params:
+            ax = self.phonon_params.get('swap_axial', 0.1)
+            tr = self.phonon_params.get('swap_transversal', 0.1)
+            self.phonon_axial[ion_a] += ax
+            self.phonon_transversal[ion_a] += tr
+            self.phonon_axial[ion_b] += ax
+            self.phonon_transversal[ion_b] += tr
 
     def split_chain(self, ion_id: int, dst_zone_id: int):
         """
@@ -349,6 +375,8 @@ class QCCDState:
         方向はdst_zone_idとソースゾーンの位置関係から自動決定:
         - dst_zone_id > source → 右側チェーンがdstへ
         - dst_zone_id < source → 左側チェーンがdstへ
+
+        フォノン: 移動するチェインのイオンにのみ加算
         """
         zone_id = self.locate(ion_id)
         contents = self.zone_contents[zone_id]
@@ -358,6 +386,10 @@ class QCCDState:
             self.zone_contents[dst_zone_id] = [ion_id]
             self.zone_contents[zone_id] = []
             self.ion_locations[ion_id] = dst_zone_id
+            # フォノン: 移動したイオンに加算
+            if self.phonon_params:
+                self.phonon_axial[ion_id] += self.phonon_params.get('split_axial', 10.0)
+                self.phonon_transversal[ion_id] += self.phonon_params.get('split_transversal', 0.05)
             return
 
         move_right = dst_zone_id > zone_id
@@ -369,25 +401,48 @@ class QCCDState:
                 raise ValueError(
                     f"Cannot split: no right chain. ion {ion_id} is at right edge of zone {zone_id}"
                 )
+            moved = right_contents
             self.zone_contents[zone_id] = left_contents
             self.zone_contents[dst_zone_id] = right_contents
             for ion in right_contents:
                 self.ion_locations[ion] = dst_zone_id
         else:
+            moved = left_contents
             self.zone_contents[zone_id] = right_contents
             self.zone_contents[dst_zone_id] = left_contents
             for ion in left_contents:
                 self.ion_locations[ion] = dst_zone_id
+
+        # フォノン: 移動チェインにのみ加算
+        if self.phonon_params:
+            ax = self.phonon_params.get('split_axial', 10.0)
+            tr = self.phonon_params.get('split_transversal', 0.05)
+            for ion in moved:
+                self.phonon_axial[ion] += ax
+                self.phonon_transversal[ion] += tr
 
     def merge_chains(self, zone_left: int, zone_right: int):
         """
         2つの隣接イオンチェーンを結合
 
         結果はMemory/LIZゾーン側に保存、Temp Zoneは空になる。
+
+        フォノン: 全イオンの平均を取ってからmergeコストを加算
         """
         left_contents = self.zone_contents.get(zone_left, [])
         right_contents = self.zone_contents.get(zone_right, [])
         merged = left_contents + right_contents
+
+        # フォノン: 全イオンの平均 + merge cost
+        if self.phonon_params and merged:
+            n = len(merged)
+            avg_ax = sum(self.phonon_axial.get(i, 0.0) for i in merged) / n
+            avg_tr = sum(self.phonon_transversal.get(i, 0.0) for i in merged) / n
+            merge_ax = self.phonon_params.get('merge_axial', 10.0)
+            merge_tr = self.phonon_params.get('merge_transversal', 0.05)
+            for ion in merged:
+                self.phonon_axial[ion] = avg_ax + merge_ax
+                self.phonon_transversal[ion] = avg_tr + merge_tr
 
         left_is_temp = self.architecture.is_temp(zone_left)
         right_is_temp = self.architecture.is_temp(zone_right)
@@ -403,6 +458,37 @@ class QCCDState:
         self.zone_contents[empty_zone] = []
         for ion in merged:
             self.ion_locations[ion] = result_zone
+
+    def apply_shuttle_phonon(self, ion_id: int, dst_chain_length: int = 0):
+        """Shuttle操作のフォノン加算（ShuttleOp生成時に呼ぶ）
+
+        Temp zone にいる全イオンに距離依存の axial + 固定 transversal を加算
+        """
+        if not self.phonon_params:
+            return
+        src_zone = self.locate(ion_id)
+        ions_in_chain = self.zone_contents.get(src_zone, [])
+        # 距離依存: shuttle_base_distance から計算
+        base_dist = self.phonon_params.get('shuttle_base_distance', 1000.0)
+        ion_factor = self.phonon_params.get('shuttle_ion_factor', 5.0)
+        distance_um = base_dist - ion_factor * dst_chain_length
+        axial_per_180 = self.phonon_params.get('shuttle_axial_per_180um', 0.5)
+        axial_add = axial_per_180 * (distance_um / 180.0)
+        tr_add = self.phonon_params.get('shuttle_transversal', 0.05)
+        for ion in ions_in_chain:
+            self.phonon_axial[ion] += axial_add
+            self.phonon_transversal[ion] += tr_add
+
+    def record_gate_phonon(self, gate_type: str, targets: List[int]):
+        """ゲート実行時のフォノン数を記録"""
+        if not self.phonon_params:
+            return
+        phonons = {ion: (self.phonon_axial.get(ion, 0.0), self.phonon_transversal.get(ion, 0.0))
+                   for ion in targets}
+        self.phonon_at_gates.append({
+            "gate": f"{gate_type}({','.join(str(t) for t in targets)})",
+            "phonons": phonons,
+        })
 
     def get_ion_position_in_zone(self, ion_id: int) -> int:
         zone_id = self.locate(ion_id)
@@ -455,12 +541,21 @@ class MovementPlanner:
             List[Operation]: Split/Swap/Merge/Gate の平坦な列（ゾーンアノテーション付き）
         """
         state = QCCDState(architecture=self.architecture)
+        # フォノン追跡を有効化（デフォルトパラメータ）
+        state.phonon_params = {
+            'split_axial': 10.0, 'split_transversal': 0.05,
+            'merge_axial': 10.0, 'merge_transversal': 0.05,
+            'swap_axial': 0.1, 'swap_transversal': 0.1,
+            'shuttle_axial_per_180um': 0.5, 'shuttle_transversal': 0.05,
+            'shuttle_base_distance': 1000.0, 'shuttle_ion_factor': 5.0,
+        }
         for ion_id, zone_id in initial_placement.items():
             state.place_ion_any(ion_id, zone_id)
 
         dag.reset_execution()
         ops: List[Operation] = []
         max_iterations = len(dag.nodes) * 200
+        self._last_state = state  # フォノン結果取得用
 
         # Measure バッチ化: 遅延中の Measure ノード情報
         # batch_size > 1 の場合、Measure を即時実行せず溜めてからバッチ実行
@@ -468,6 +563,9 @@ class MovementPlanner:
         # LIZ容量でクランプ
         liz_cap = self.architecture.get_liz_zones()[0].capacity
         batch_size = min(batch_size, liz_cap)
+        # バッチRESET済みアンシラ: flush時に自動RESETしたアンシラを記録し、
+        # DAG上のRESETノードが後から出てきた場合にスキップする
+        batch_reset_done: Set[int] = set()
         # 補助量子ビットのユニーク数でクランプ
         # reuse回路では同じアンシラが複数回MEASUREされるため、
         # 同時測定可能な数はユニークなアンシラ数が上限
@@ -487,7 +585,7 @@ class MovementPlanner:
 
             # DAG完了だが測定待ちが残っている → フラッシュ
             if dag.is_complete() and pending_measures:
-                ops.extend(self._flush_pending_measures(pending_measures, state))
+                ops.extend(self._flush_pending_measures(pending_measures, state, dag, batch_reset_done))
                 pending_measures.clear()
                 break
 
@@ -499,6 +597,11 @@ class MovementPlanner:
                 if isinstance(node.operation, MeasureOp) and batch_size > 1:
                     # Measureを遅延: DAG上では実行済みにするが、ops には追加しない
                     ancilla_id = node.operation.targets[0]
+                    # 同じアンシラが既にpendingにいる場合はバッチ化せず先にフラッシュ
+                    pending_ancillas = set(item[0] for item in pending_measures)
+                    if ancilla_id in pending_ancillas:
+                        ops.extend(self._flush_pending_measures(pending_measures, state, dag, batch_reset_done))
+                        pending_measures.clear()
                     pending_measures.append((ancilla_id, node.operation, node.id))
                     dag.execute(node.id)
 
@@ -511,8 +614,18 @@ class MovementPlanner:
 
                     # バッチが溜まったら一括測定
                     if len(pending_measures) >= batch_size:
-                        ops.extend(self._flush_pending_measures(pending_measures, state))
+                        ops.extend(self._flush_pending_measures(pending_measures, state, dag, batch_reset_done))
                         pending_measures.clear()
+                elif isinstance(node.operation, ResetOp) and batch_size > 1:
+                    # バッチRESET済みのアンシラなら DAG上でスキップ
+                    reset_ancilla = node.operation.targets[0]
+                    if reset_ancilla in batch_reset_done:
+                        dag.execute(node.id)
+                        batch_reset_done.discard(reset_ancilla)
+                        continue
+                    else:
+                        ops.append(self._annotate_gate(node.operation, state))
+                        dag.execute(node.id)
                 else:
                     ops.append(self._annotate_gate(node.operation, state))
                     dag.execute(node.id)
@@ -547,17 +660,24 @@ class MovementPlanner:
     def _flush_pending_measures(
         self,
         pending_measures: List[tuple],
-        state: QCCDState
+        state: QCCDState,
+        dag: DAG = None,
+        batch_reset_done: Set[int] = None
     ) -> List[Operation]:
         """
-        測定待ちアンシラを全てLIZに集めて一括Measureする
+        測定待ちアンシラを全てLIZに集めて一括Measure + 一括Resetする
+
+        Interleaveモードでは、回路側のRESETに依存せず、MEASURE直後に
+        コンパイラが自動的にRESETを挿入する。アンシラがまだLIZ上にいる
+        ため搬送コストはゼロ。DAG上の対応するRESETノードはスキップする。
 
         Args:
             pending_measures: [(ancilla_id, MeasureOp, node_id), ...]
             state: 現在の QCCDState
+            dag: DAG（RESETノードのスキップ用、省略可）
 
         Returns:
-            移動 + Measure の操作列
+            移動 + Measure + Reset の操作列
         """
         ops: List[Operation] = []
         target_liz = self.architecture.get_liz_zones()[0].id
@@ -579,6 +699,32 @@ class MovementPlanner:
         all_targets = [item[0] for item in pending_measures]
         batch_measure = MeasureOp(targets=all_targets, zone_id=target_liz)
         ops.append(batch_measure)
+
+        # バッチReset: MEASURE直後に無条件で全アンシラをRESET
+        # アンシラはまだLIZ上にいるので搬送不要
+        # 最後のバッチ（DAG完了直前）ではRESET不要
+        if dag is not None:
+            # DAG上に残りのノードがある = まだスタビライザが残っている → RESET必要
+            remaining_after = set(dag.nodes.keys()) - dag.get_executed()
+            has_remaining_work = any(
+                not isinstance(dag.nodes[nid].operation, ResetOp)
+                for nid in remaining_after
+            )
+            if has_remaining_work:
+                batch_reset = ResetOp(targets=all_targets, zone_id=target_liz)
+                ops.append(batch_reset)
+                # バッチRESET済みとして記録（後からDAGのRESETノードが出たらスキップ）
+                if batch_reset_done is not None:
+                    batch_reset_done.update(all_targets)
+
+            # DAG上の対応するRESETノードをスキップ（実行済みとしてマーク）
+            front_layer = dag.get_front_layer()
+            for node_id in list(front_layer):
+                node = dag.nodes[node_id]
+                if isinstance(node.operation, ResetOp):
+                    reset_ancilla = node.operation.targets[0]
+                    if reset_ancilla in ancilla_set:
+                        dag.execute(node_id)
 
         return ops
 
@@ -634,6 +780,9 @@ class MovementPlanner:
         """GateOp/ResetOp/MeasureOpにzone_idを付与した新しいオペレーションを返す"""
         if isinstance(op, GateOp) and op.targets:
             liz_id = state.locate(op.targets[0])
+            # MSゲート実行時のフォノン数を記録
+            if op.type == 'MS':
+                state.record_gate_phonon(op.type, op.targets)
             return GateOp(type=op.type, targets=op.targets, params=op.params, zone_id=liz_id)
         if isinstance(op, ResetOp) and op.targets:
             liz_id = state.locate(op.targets[0])
@@ -840,6 +989,8 @@ class MovementPlanner:
             src_zone=temp_zone
         )
         ops.append(shuttle_op)
+        # Shuttle フォノン加算（move_ion の前に、Temp zone のイオンに対して）
+        state.apply_shuttle_phonon(ion_id, len(dst_contents))
 
         # Step 4: Merge
         left_z = min(temp_zone, dst_zone)
@@ -1070,6 +1221,8 @@ class CompileResult:
     timesteps: List[TimeStep]   # Scheduler出力（並列化済み）
     stats: Dict[str, int]       # 統計情報
     config: "CompilerConfig" = None
+    flat_ops: List[Operation] = field(default_factory=list)  # Scheduler前の元の生成順
+    phonon_data: Optional[Dict] = None  # フォノン追跡結果
 
     @property
     def operations(self) -> List[Operation]:
@@ -1117,7 +1270,22 @@ class QCCDCompiler:
         stats = self._calculate_stats(flat_ops)
         stats["timesteps"] = len(timesteps)
 
-        return CompileResult(timesteps=timesteps, stats=stats, config=self.config)
+        # フォノン結果を抽出
+        phonon_data = None
+        if hasattr(self._planner, '_last_state') and self._planner._last_state.phonon_params:
+            st = self._planner._last_state
+            max_ax = max(st.phonon_axial.values()) if st.phonon_axial else 0.0
+            max_tr = max(st.phonon_transversal.values()) if st.phonon_transversal else 0.0
+            phonon_data = {
+                'max_axial': max_ax,
+                'max_transversal': max_tr,
+                'per_ion_axial': dict(st.phonon_axial),
+                'per_ion_transversal': dict(st.phonon_transversal),
+                'at_gates': st.phonon_at_gates,
+            }
+
+        return CompileResult(timesteps=timesteps, stats=stats, config=self.config,
+                             flat_ops=flat_ops, phonon_data=phonon_data)
 
     def _calculate_stats(self, ops: List[Operation]) -> Dict[str, int]:
         stats = {"gates": 0, "shuttles": 0, "swaps": 0, "splits": 0, "merges": 0}

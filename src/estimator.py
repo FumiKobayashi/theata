@@ -42,6 +42,20 @@ class TimeParameters:
     shuttle_speed: float = 9.0  # μm/μs
     shuttle_base_distance: float = 1000.0  # μm (基本距離)
     shuttle_ion_factor: float = 5.0  # μm per ion
+
+    # フォノン数変化パラメータ
+    # Shuttling: axial = 0.5 per 180μm, transversal = 0.05 per op
+    phonon_shuttle_axial_per_180um: float = 0.5
+    phonon_shuttle_transversal: float = 0.05
+    # Split: axial = 10 per op, transversal = 0.05 per op (移動チェインのみ)
+    phonon_split_axial: float = 10.0
+    phonon_split_transversal: float = 0.05
+    # Merge: axial = 10 per op, transversal = 0.05 per op (平均化後に加算)
+    phonon_merge_axial: float = 10.0
+    phonon_merge_transversal: float = 0.05
+    # Swap: axial = 0.1 per op, transversal = 0.1 per op
+    phonon_swap_axial: float = 0.1
+    phonon_swap_transversal: float = 0.1
     
     def shuttle_time(self, dst_chain_length: int = 0) -> float:
         """

@@ -80,6 +80,8 @@ class ParallelEstimator:
 
         各TimeStepの実行時間 = max(各opの所要時間)
         合計 = Σ max(TimeStep内のop時間)
+
+        フォノン追跡は QCCDState 側で行われ、CompileResult.phonon_data に格納される。
         """
         total_time = 0.0
         sequential_time = 0.0
@@ -96,12 +98,10 @@ class ParallelEstimator:
                 op_type, op_time = self._get_operation_time(op)
                 total_ops += 1
 
-                # 逐次合計（breakdown用）
                 breakdown[op_type] = breakdown.get(op_type, 0.0) + op_time
                 counts[op_type] = counts.get(op_type, 0) + 1
                 sequential_time += op_time
 
-                # TimeStep内の最大時間
                 if op_time > step_max_time:
                     step_max_time = op_time
 
