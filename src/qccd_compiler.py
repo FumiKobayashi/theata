@@ -41,11 +41,15 @@ class CompilerConfig:
             - 1: 即時測定（デフォルト、従来動作）
             - 2+: 指定数のアンシラが測定待ちになるまで遅延し一括測定
             - LIZ容量を超える値は自動的にLIZ容量にクランプされる
+        eviction_strategy: LIZからの退避戦略
+            - "balanced": アンシラの左右で振り分け（複数ラウンド向き、配置バランス保持）
+            - "nearest": 最寄りMemoryへBFS（1ラウンド最小ops）
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
     measure_batch_size: int = 1
     interleave: bool = False
+    eviction_strategy: str = "balanced"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -68,6 +72,9 @@ class CompilerConfig:
             raise ValueError(f"Invalid gate_selection: {self.gate_selection}. Valid: {valid_gate}")
         if not isinstance(self.memory_reorder, bool):
             raise ValueError(f"memory_reorder must be bool, got {type(self.memory_reorder)}")
+        valid_eviction = {"balanced", "nearest"}
+        if self.eviction_strategy not in valid_eviction:
+            raise ValueError(f"Invalid eviction_strategy: {self.eviction_strategy}. Valid: {valid_eviction}")
         if not isinstance(self.measure_batch_size, int) or self.measure_batch_size < 1:
             raise ValueError(f"measure_batch_size must be int >= 1, got {self.measure_batch_size}")
 
@@ -313,8 +320,17 @@ class QCCDState:
             return 0
         return zone.capacity - len(self.zone_contents[zone_id])
 
-    def find_eviction_destination(self, from_zone_id: int) -> Optional[int]:
-        """空きのある最寄りのMemoryゾーンを探す"""
+    def find_eviction_destination(self, from_zone_id: int, ion_id: int = None) -> Optional[int]:
+        """空きのある最寄りのMemoryゾーンを探す（方向指定可能）"""
+        return self._find_memory_in_direction(from_zone_id, prefer_left=True)
+
+    def _find_memory_in_direction(self, from_zone_id: int, prefer_left: bool = True) -> Optional[int]:
+        """指定方向を優先してMemoryゾーンを探す"""
+        if prefer_left:
+            search_order_fn = lambda zid: self.architecture.get_adjacent_zones(zid)
+        else:
+            search_order_fn = lambda zid: list(reversed(self.architecture.get_adjacent_zones(zid)))
+
         visited = {from_zone_id}
         queue = [from_zone_id]
         while queue:
@@ -322,11 +338,79 @@ class QCCDState:
             zone = self.architecture.get_zone(current)
             if zone and zone.zone_type == "M" and self.get_zone_free_space(current) > 0:
                 return current
-            for adj in self.architecture.get_adjacent_zones(current):
+            for adj in search_order_fn(current):
                 if adj not in visited:
                     visited.add(adj)
                     queue.append(adj)
         return None
+
+    def plan_evictions(self, zone_id: int, ions_to_evict: list, protected: set = None) -> list:
+        """
+        複数イオンの退避先をprotected（アンシラ）の左右で振り分ける
+
+        LIZ内の配置は自然に [z1由来, アンシラ, z5由来] となっているため、
+        アンシラより左のイオンは左方向(zone_idが小さいMemory)へ、
+        アンシラより右のイオンは右方向(zone_idが大きいMemory)へ退避する。
+        これによりLIZ内でのSwapが不要になる。
+
+        protectedがない場合は左右交互にフォールバック。
+
+        Returns:
+            [(ion_id, evict_destination_zone_id), ...]
+            退避順序: 左端→右端→左端→... の順（両端から内側へ）
+        """
+        if protected is None:
+            protected = set()
+
+        contents = list(self.zone_contents.get(zone_id, []))
+        evict_set = set(ions_to_evict)
+
+        # protectedイオンの位置を特定
+        protected_positions = [i for i, ion in enumerate(contents) if ion in protected]
+
+        if protected_positions:
+            # protectedの最小位置より左 → 左方向へ退避
+            # protectedの最大位置より右 → 右方向へ退避
+            protected_min = min(protected_positions)
+            protected_max = max(protected_positions)
+        else:
+            # protectedがなければ中央で分割
+            protected_min = len(contents) // 2
+            protected_max = protected_min
+
+        # 左側イオン（左端から順に）と右側イオン（右端から順に）に分類
+        left_ions = []   # 左方向へ退避（左端から内側へ）
+        right_ions = []  # 右方向へ退避（右端から内側へ）
+
+        for i, ion in enumerate(contents):
+            if ion not in evict_set:
+                continue
+            if i < protected_min:
+                left_ions.append(ion)
+            elif i > protected_max:
+                right_ions.append(ion)
+            else:
+                # protectedの間にいる → 近い方へ
+                if i - protected_min <= protected_max - i:
+                    left_ions.append(ion)
+                else:
+                    right_ions.append(ion)
+
+        # 退避計画を構築（両端から交互に実行）
+        plan = []
+        # 左側は左端から（リスト順 = 左端から内側へ）
+        for ion in left_ions:
+            dst = self._find_memory_in_direction(zone_id, prefer_left=True)
+            if dst is not None:
+                plan.append((ion, dst))
+
+        # 右側は右端から（リスト逆順 = 右端から内側へ）
+        for ion in reversed(right_ions):
+            dst = self._find_memory_in_direction(zone_id, prefer_left=False)
+            if dst is not None:
+                plan.append((ion, dst))
+
+        return plan
 
     def move_ion(self, ion_id: int, dst_zone_id: int):
         """イオンを隣接ゾーンへ移動"""
@@ -529,6 +613,26 @@ class MovementPlanner:
         self._last_ms_stabilizer: Optional[int] = None
         self._preferred_stabilizer: Optional[int] = None
 
+    def _evict_ions(self, zone_id: int, ions: list, state: QCCDState,
+                    protected: set = None) -> List[Operation]:
+        """退避戦略に基づいて複数イオンをLIZから退避する
+
+        Returns:
+            退避に必要な操作列
+        """
+        ops = []
+        if self.config.eviction_strategy == "balanced":
+            eviction_plan = state.plan_evictions(zone_id, ions, protected=protected)
+            for ion, dst in eviction_plan:
+                ops.extend(self._move_ion_to_zone(ion, dst, state))
+        else:
+            # nearest: 従来のBFS
+            for ion in ions:
+                evict_dst = state.find_eviction_destination(zone_id)
+                if evict_dst is not None:
+                    ops.extend(self._move_ion_to_zone(ion, evict_dst, state))
+        return ops
+
     def plan(self, dag: DAG, initial_placement: Dict[int, int]) -> List[Operation]:
         """
         メインエントリーポイント: DAG → 平坦なAtomicOp列
@@ -608,7 +712,7 @@ class MovementPlanner:
                     # アンシラをLIZからMemoryに退避（次のスタビライザに進むため）
                     if state.is_in_liz(ancilla_id):
                         liz_zone = state.locate(ancilla_id)
-                        evict_dst = state.find_eviction_destination(liz_zone)
+                        evict_dst = state.find_eviction_destination(liz_zone, ancilla_id)
                         if evict_dst is not None:
                             ops.extend(self._move_ion_to_zone(ancilla_id, evict_dst, state))
 
@@ -684,11 +788,10 @@ class MovementPlanner:
 
         # LIZ 上の非ターゲットイオンを退避
         ancilla_set = set(item[0] for item in pending_measures)
-        for ion in list(state.zone_contents.get(target_liz, [])):
-            if ion not in ancilla_set:
-                evict_dst = state.find_eviction_destination(target_liz)
-                if evict_dst is not None:
-                    ops.extend(self._move_ion_to_zone(ion, evict_dst, state))
+        extra_ions = [ion for ion in state.zone_contents.get(target_liz, [])
+                      if ion not in ancilla_set]
+        if extra_ions:
+            ops.extend(self._evict_ions(target_liz, extra_ions, state, protected=ancilla_set))
 
         # アンシラを全てLIZに集める
         for ancilla_id, _, _ in pending_measures:
@@ -834,22 +937,13 @@ class MovementPlanner:
                     # 同じLIZ内にいる
                     target_liz = state.locate(targets[0])
                     if isinstance(op, (ResetOp, MeasureOp)):
-                        # RESET/MEASURE: ターゲット以外のイオンを退避
+                        # RESET/MEASURE: ターゲット以外のイオンを退避（左右交互）
                         extra_ions = [
                             ion for ion in state.zone_contents.get(target_liz, [])
                             if ion not in target_set
                         ]
                         if extra_ions:
-                            result = []
-                            for ion in extra_ions:
-                                evict_dst = state.find_eviction_destination(target_liz)
-                                if evict_dst is None:
-                                    raise RuntimeError(
-                                        f"Cannot evict ion {ion} from LIZ {target_liz}: "
-                                        f"no memory space available"
-                                    )
-                                result.extend(self._move_ion_to_zone(ion, evict_dst, state))
-                            return result
+                            return self._evict_ions(target_liz, extra_ions, state, protected=target_set)
                     # Gate or RESET/MEASURE with no extra ions → 実行可能なはず
                     continue
                 # 異なるLIZ → 一方のLIZに集める（バグ修正: 旧実装の無限ループを解消）
@@ -858,7 +952,7 @@ class MovementPlanner:
                 for ion in targets:
                     if state.locate(ion) != target_liz:
                         src_liz = state.locate(ion)
-                        evict_dst = state.find_eviction_destination(src_liz)
+                        evict_dst = state.find_eviction_destination(src_liz, ion)
                         if evict_dst is None:
                             raise RuntimeError(
                                 f"Cannot evict ion {ion} from LIZ {src_liz}: no memory space available"
@@ -882,14 +976,10 @@ class MovementPlanner:
 
             # RESET/MEASUREの場合: LIZ上のターゲット以外を全て退避
             if isinstance(op, (ResetOp, MeasureOp)):
-                for ion in list(state.zone_contents.get(target_liz, [])):
-                    if ion not in target_set:
-                        evict_dst = state.find_eviction_destination(target_liz)
-                        if evict_dst is None:
-                            raise RuntimeError(
-                                f"Cannot evict ion {ion} from LIZ {target_liz}: no memory space available"
-                            )
-                        result.extend(self._move_ion_to_zone(ion, evict_dst, state))
+                extra_ions = [ion for ion in state.zone_contents.get(target_liz, [])
+                              if ion not in target_set]
+                if extra_ions:
+                    result.extend(self._evict_ions(target_liz, extra_ions, state, protected=target_set))
 
             # LIZに必要な空きを確保
             ions_to_bring = [ion for ion in targets if state.locate(ion) != target_liz]
@@ -905,14 +995,8 @@ class MovementPlanner:
                         f"Cannot free {n_to_evict} spots in LIZ {target_liz}. "
                         f"Only {len(candidates)} evictable ions (protected: {target_set})"
                     )
-                for i in range(n_to_evict):
-                    # 退避先を毎回再探索（バグ修正: 旧実装は容量確認なしで同一先に複数送っていた）
-                    evict_dst = state.find_eviction_destination(target_liz)
-                    if evict_dst is None:
-                        raise RuntimeError(
-                            f"Cannot find eviction destination from LIZ {target_liz}"
-                        )
-                    result.extend(self._move_ion_to_zone(candidates[i], evict_dst, state))
+                result.extend(self._evict_ions(
+                    target_liz, candidates[:n_to_evict], state, protected=target_set))
 
             # ターゲットイオンをLIZへ移動
             for ion in ions_to_bring:
@@ -1223,6 +1307,8 @@ class CompileResult:
     config: "CompilerConfig" = None
     flat_ops: List[Operation] = field(default_factory=list)  # Scheduler前の元の生成順
     phonon_data: Optional[Dict] = None  # フォノン追跡結果
+    final_placement: Optional[Dict[int, int]] = None  # ラウンド終了時のion配置 (ion_id -> zone_id)
+    final_zone_contents: Optional[Dict[int, List[int]]] = None  # ゾーン内の並び順 (zone_id -> [ion_ids])
 
     @property
     def operations(self) -> List[Operation]:
@@ -1284,8 +1370,20 @@ class QCCDCompiler:
                 'at_gates': st.phonon_at_gates,
             }
 
+        # 最終配置を抽出（zone_contents の順序を保持）
+        final_placement = None
+        final_zone_contents = None
+        if hasattr(self._planner, '_last_state'):
+            final_placement = dict(self._planner._last_state.ion_locations)
+            final_zone_contents = {
+                z: list(ions) for z, ions in self._planner._last_state.zone_contents.items()
+                if ions
+            }
+
         return CompileResult(timesteps=timesteps, stats=stats, config=self.config,
-                             flat_ops=flat_ops, phonon_data=phonon_data)
+                             flat_ops=flat_ops, phonon_data=phonon_data,
+                             final_placement=final_placement,
+                             final_zone_contents=final_zone_contents)
 
     def _calculate_stats(self, ops: List[Operation]) -> Dict[str, int]:
         stats = {"gates": 0, "shuttles": 0, "swaps": 0, "splits": 0, "merges": 0}
