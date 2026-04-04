@@ -143,8 +143,12 @@ def main():
     parser.add_argument('--placement', default='split_even',
                         choices=['split_even', 'greedy_alt'],
                         help='Initial placement strategy (default: split_even)')
+    parser.add_argument('--forward-circuit', default=FORWARD_CIRCUIT,
+                        help=f'Forward circuit module (default: {FORWARD_CIRCUIT})')
     parser.add_argument('--reverse-circuit', default=REVERSE_CIRCUIT,
                         help=f'Reverse circuit module (default: {REVERSE_CIRCUIT})')
+    parser.add_argument('--memory-capacity', type=int, default=MEMORY_CAPACITY,
+                        help=f'Memory zone capacity (default: {MEMORY_CAPACITY})')
     parser.add_argument('--eviction', default='balanced',
                         choices=['balanced', 'nearest'],
                         help='Eviction strategy (default: balanced)')
@@ -161,21 +165,23 @@ def main():
     print(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Rounds: {args.rounds}")
     print(f"Placement: {args.placement}")
+    forward_circuit = args.forward_circuit
     reverse_circuit = args.reverse_circuit
     eviction_strategy = args.eviction
-    print(f"Forward: {FORWARD_CIRCUIT}, Reverse: {reverse_circuit}")
+    mem_cap = args.memory_capacity
+    print(f"Forward: {forward_circuit}, Reverse: {reverse_circuit}")
     print(f"Eviction: {eviction_strategy}")
     print("=" * 70)
 
     # Architecture
     arch = QCCDArchitecture.simple_mlm(
         liz_capacity=LIZ_CAPACITY,
-        memory_capacity=MEMORY_CAPACITY,
-        temp_capacity=MEMORY_CAPACITY,
+        memory_capacity=mem_cap,
+        temp_capacity=mem_cap,
     )
 
     # Initial placement
-    fwd_mod = __import__(FORWARD_CIRCUIT)
+    fwd_mod = __import__(forward_circuit)
     if args.placement == 'split_even':
         initial = placement_split_even(fwd_mod.DATA_QUBITS, fwd_mod.ANCILLA_QUBITS)
     elif args.placement == 'greedy_alt':
@@ -192,7 +198,7 @@ def main():
 
     for r in range(1, args.rounds + 1):
         direction = "forward" if r % 2 == 1 else "reverse"
-        circuit_name = FORWARD_CIRCUIT if direction == "forward" else reverse_circuit
+        circuit_name = forward_circuit if direction == "forward" else reverse_circuit
 
         print(f"\n--- Round {r}/{args.rounds} ({direction}) ---")
 
@@ -261,7 +267,7 @@ def main():
     output = {
         "experiment": "multi_round_qec",
         "generated_at": timestamp,
-        "forward_circuit": FORWARD_CIRCUIT,
+        "forward_circuit": forward_circuit,
         "reverse_circuit": reverse_circuit,
         "distance": 3,
         "total_rounds": args.rounds,

@@ -77,16 +77,70 @@ def get_stabilizers(d):
     return stabilizers
 
 
+def _flip_z_cnot_order(stab, d):
+    """Z スタビライザの CNOT 順序を NW->SW->NE->SE に変更する
+
+    元: NE->SE->NW->SW (右→左走査に適した順序)
+    変更後: NW->SW->NE->SE (左→右走査に適した順序)
+    """
+    stype, dqubits, pos = stab
+    if stype != "Z" or len(dqubits) != 4:
+        return stab
+    # 元の順序: [NE, SE, NW, SW] → 変更後: [NW, SW, NE, SE]
+    ne, se, nw, sw = dqubits
+    return (stype, [nw, sw, ne, se], pos)
+
+
+def _find_adjacent_top_boundary(top_boundaries, bulk_stab, d):
+    """bulk Z スタビライザに隣接する top boundary X を探す"""
+    if bulk_stab[0] != "Z":
+        return None
+    _, bulk_dq, pos = bulk_stab
+    if not isinstance(pos, tuple) or not isinstance(pos[0], int):
+        return None
+    pr, pc = pos
+    if pr != 0:  # top boundary は row 0 の bulk にのみ隣接
+        return None
+    # top boundary X は column pc または pc+1 付近にある
+    for tb in top_boundaries:
+        tb_dq = set(tb[1])
+        if tb_dq & set(bulk_dq):  # 共有 qubit があれば隣接
+            return tb
+    return None
+
+
+def _find_adjacent_bottom_boundary(bottom_boundaries, bulk_stab, d):
+    """bulk Z スタビライザに隣接する bottom boundary X を探す"""
+    if bulk_stab[0] != "Z":
+        return None
+    _, bulk_dq, pos = bulk_stab
+    if not isinstance(pos, tuple) or not isinstance(pos[0], int):
+        return None
+    pr, pc = pos
+    if pr != d - 2:  # bottom boundary は最終行の bulk にのみ隣接
+        return None
+    for bb in bottom_boundaries:
+        bb_dq = set(bb[1])
+        if bb_dq & set(bulk_dq):
+            return bb
+    return None
+
+
 def get_snake_order(stabilizers, d):
     """蛇行順でスタビライザを並べ替える
 
-    Bulk plaquettes を蛇行順に並べ、boundary stabilizers を適切な位置に挿入
+    改善点:
+    1. Z スタビライザの CNOT 順序を走査方向で切り替え
+       - 左→右走査 (偶数行): NW->SW->NE->SE
+       - 右→左走査 (奇数行): NE->SE->NW->SW (デフォルト)
+    2. 重み2 X boundary を隣接する Z スタビライザの直後に配置
+       (共有 qubit の LIZ 再利用を促進)
     """
     bulk = [s for s in stabilizers if isinstance(s[2], tuple) and isinstance(s[2][0], int)]
     left_boundary = [s for s in stabilizers if isinstance(s[2], tuple) and s[2][0] == "left"]
     right_boundary = [s for s in stabilizers if isinstance(s[2], tuple) and s[2][0] == "right"]
-    top_boundary = [s for s in stabilizers if isinstance(s[2], tuple) and s[2][0] == "top"]
-    bottom_boundary = [s for s in stabilizers if isinstance(s[2], tuple) and s[2][0] == "bottom"]
+    top_boundary = list(s for s in stabilizers if isinstance(s[2], tuple) and s[2][0] == "top")
+    bottom_boundary = list(s for s in stabilizers if isinstance(s[2], tuple) and s[2][0] == "bottom")
 
     # Bulk を行ごとにグループ化
     bulk_by_row = {}
@@ -94,42 +148,65 @@ def get_snake_order(stabilizers, d):
         pr, pc = s[2]
         bulk_by_row.setdefault(pr, []).append((pc, s))
 
+    used_top = set()
+    used_bottom = set()
+
     # 蛇行順
     ordered = []
     for pr in range(d - 1):
         row = sorted(bulk_by_row.get(pr, []), key=lambda x: x[0])
-        if pr % 2 == 1:
+        scan_left_to_right = (pr % 2 == 0)
+        if not scan_left_to_right:
             row = list(reversed(row))
 
-        # 行の先頭に左boundary / 末尾に右boundary を挿入
-        if pr % 2 == 0:
-            # 左→右: 左boundary → bulk → 右boundary
+        # 行の先頭に左/右 boundary を挿入
+        if scan_left_to_right:
             for lb in left_boundary:
                 if lb[2][1] == pr:
                     ordered.append(lb)
-            for _, s in row:
-                ordered.append(s)
+        else:
+            for rb in right_boundary:
+                if rb[2][1] == pr:
+                    ordered.append(rb)
+
+        # Bulk スタビライザ（+ 隣接 boundary の挿入）
+        for _, s in row:
+            # Z スタビライザの CNOT 順序を走査方向で切り替え
+            if s[0] == "Z" and scan_left_to_right:
+                s = _flip_z_cnot_order(s, d)
+
+            ordered.append(s)
+
+            # 重み2 X boundary を隣接 Z の直後に挿入
+            adj_top = _find_adjacent_top_boundary(
+                [tb for tb in top_boundary if id(tb) not in used_top], s, d)
+            if adj_top is not None:
+                ordered.append(adj_top)
+                used_top.add(id(adj_top))
+
+            adj_bottom = _find_adjacent_bottom_boundary(
+                [bb for bb in bottom_boundary if id(bb) not in used_bottom], s, d)
+            if adj_bottom is not None:
+                ordered.append(adj_bottom)
+                used_bottom.add(id(adj_bottom))
+
+        # 行の末尾に右/左 boundary を挿入
+        if scan_left_to_right:
             for rb in right_boundary:
                 if rb[2][1] == pr:
                     ordered.append(rb)
         else:
-            # 右→左: 右boundary → bulk(reverse) → 左boundary
-            for rb in right_boundary:
-                if rb[2][1] == pr:
-                    ordered.append(rb)
-            for _, s in row:
-                ordered.append(s)
             for lb in left_boundary:
                 if lb[2][1] == pr:
                     ordered.append(lb)
 
-        # 行の終わりに top/bottom boundary を挿入
-        if pr == 0:
-            for tb in sorted(top_boundary, key=lambda s: s[2][1]):
-                ordered.append(tb)
-        if pr == d - 2:
-            for bb in sorted(bottom_boundary, key=lambda s: s[2][1]):
-                ordered.append(bb)
+    # 未配置の top/bottom boundary（隣接Zがなかった場合のフォールバック）
+    for tb in top_boundary:
+        if id(tb) not in used_top:
+            ordered.append(tb)
+    for bb in bottom_boundary:
+        if id(bb) not in used_bottom:
+            ordered.append(bb)
 
     return ordered
 
@@ -193,22 +270,29 @@ def generate_stabilizer_block(stab_type, data_qubits, ancilla):
     return lines
 
 
-def generate_circuit(d, n_ancillas=1):
+def generate_circuit(d, n_ancillas=1, reverse=False):
     """完全な回路文字列を生成
 
     Args:
         d: 符号距離
         n_ancillas: 使用するアンシラ数 (1 or 2)
+        reverse: True の場合、スタビライザ順を逆にし、各スタビライザ内のCNOT順も逆にする
     """
     n_data = d * d
     stabilizers = get_stabilizers(d)
     ordered = get_snake_order(stabilizers, d)
 
+    if reverse:
+        # スタビライザ順を逆 + 各スタビライザ内のCNOT順（data_qubits）も逆
+        ordered = [(stype, list(reversed(dqubits)), pos)
+                   for stype, dqubits, pos in reversed(ordered)]
+
     ancilla_ids = list(range(n_data, n_data + n_ancillas))
 
+    direction = "reverse" if reverse else "forward"
     lines = []
     lines.append("# ============================================================")
-    lines.append(f"# Distance-{d} Rotated Surface Code (reuse{n_ancillas})")
+    lines.append(f"# Distance-{d} Rotated Surface Code (reuse{n_ancillas}, {direction})")
     lines.append("# ============================================================")
     lines.append("")
 
@@ -222,12 +306,17 @@ def generate_circuit(d, n_ancillas=1):
     lines.append("")
 
     # Instructions
-    lines.append("# Instructions")
+    lines.append(f"# Instructions ({direction})")
     total = len(ordered)
+    initialized_ancillas = set()
     for idx, (stype, dqubits, pos) in enumerate(ordered):
         ancilla = ancilla_ids[idx % n_ancillas]
         dq_str = ",".join(str(q) for q in dqubits)
         lines.append(f"# Stabilizer {idx+1}/{total}: {stype}{{{dq_str}}} ancilla={ancilla}")
+        # 各アンシラの初回出現時に RESET を挿入
+        if ancilla not in initialized_ancillas:
+            lines.append(f"RESET {ancilla}")
+            initialized_ancillas.add(ancilla)
         block = generate_stabilizer_block(stype, dqubits, ancilla)
         lines.extend(block)
         # MEASURE の後、同じアンシラを使うスタビライザが残っていれば RESET を挿入
@@ -249,10 +338,10 @@ def _grid_str(d):
     return "\n".join(lines)
 
 
-def write_circuit_file(d, n_ancillas):
+def write_circuit_file(d, n_ancillas, reverse=False):
     """回路ファイルを生成して書き出す"""
     n_data = d * d
-    circuit_str, ordered, ancilla_ids = generate_circuit(d, n_ancillas)
+    circuit_str, ordered, ancilla_ids = generate_circuit(d, n_ancillas, reverse=reverse)
 
     all_qubits = n_data + len(ancilla_ids)
     x_count = sum(1 for s in ordered if s[0] == "X")
@@ -267,21 +356,22 @@ def write_circuit_file(d, n_ancillas):
 
     grid = _grid_str(d)
 
+    direction = "reverse" if reverse else "forward"
+    rev_suffix = "_reverse_cnot" if reverse else ""
+
     module_content = f'''"""
-d{d}_reuse{n_ancillas}
-Distance-{d} Rotated Surface Code ({n_ancillas}アンシラ再利用)
+d{d}_reuse{n_ancillas}{rev_suffix}
+Distance-{d} Rotated Surface Code ({n_ancillas}アンシラ再利用, {direction})
 
 Data qubits: 0-{n_data - 1} ({d}x{d} grid)
 {grid}
 
 Ancilla qubits: {ancilla_ids}
 Total stabilizers: {len(ordered)} ({x_count} X-type + {z_count} Z-type)
+Direction: {direction}
+{"Reverse: stabilizer order reversed + CNOT order within each stabilizer reversed" if reverse else "Forward: standard snake scan order"}
 
-Hook error avoiding CNOT order:
-  X stabilizers (Z-pattern): NW -> NE -> SW -> SE
-  Z stabilizers (reverse-N): NE -> SE -> NW -> SW
-
-Execution order (snake):
+Execution order:
   {order_str}
 """
 
@@ -294,7 +384,7 @@ CIRCUIT = """
 {circuit_str}
 """
 '''
-    filename = f"d{d}_reuse{n_ancillas}.py"
+    filename = f"d{d}_reuse{n_ancillas}{rev_suffix}.py"
     with open(filename, "w", encoding="utf-8") as f:
         f.write(module_content)
     print(f"Generated: {filename} ({len(ordered)} stabilizers, {all_qubits} qubits)")
@@ -333,4 +423,6 @@ if __name__ == "__main__":
         print()
         write_circuit_file(d, 1)
         write_circuit_file(d, 2)
+        write_circuit_file(d, 1, reverse=True)
+        write_circuit_file(d, 2, reverse=True)
         print()
