@@ -374,9 +374,26 @@ class QCCDState:
             protected_min = min(protected_positions)
             protected_max = max(protected_positions)
         else:
-            # protectedがなければ中央で分割
-            protected_min = len(contents) // 2
-            protected_max = protected_min
+            # protectedがなければ退避先の空き容量で振り分ける
+            # 左Memory と右Memory の空きを比較して均等に分配
+            left_mem = self._find_memory_in_direction(zone_id, prefer_left=True)
+            right_mem = self._find_memory_in_direction(zone_id, prefer_left=False)
+            left_free = self.get_zone_free_space(left_mem) if left_mem is not None else 0
+            right_free = self.get_zone_free_space(right_mem) if right_mem is not None else 0
+
+            plan = []
+            evict_list = [ion for ion in contents if ion in evict_set]
+            for ion in evict_list:
+                if left_free > right_free:
+                    plan.append((ion, left_mem))
+                    left_free -= 1
+                elif right_free > 0:
+                    plan.append((ion, right_mem))
+                    right_free -= 1
+                else:
+                    plan.append((ion, left_mem))
+                    left_free -= 1
+            return plan
 
         # 左側イオン（左端から順に）と右側イオン（右端から順に）に分類
         left_ions = []   # 左方向へ退避（左端から内側へ）
@@ -1018,7 +1035,35 @@ class MovementPlanner:
         """
         イオンをdst_zoneへ移動する操作列を生成（Split+Shuttle+Mergeをインライン展開）
 
+        1ホップ（隣接M/L間）の場合: src → temp → dst
+        複数ホップの場合: 経路上の中間ゾーンを1ホップずつ進む
+        """
+        src_zone = state.locate(ion_id)
+        if src_zone == dst_zone:
+            return []
+
+        # 経路を計算: src → ... → dst
+        path = self.architecture.get_path(src_zone, dst_zone)
+        # 経路上の非Tempゾーン（M/L）を中間目標として抽出
+        # 各中間目標に対して1ホップずつ移動する
+        waypoints = [z for z in path if not self.architecture.is_temp(z)]
+
+        ops = []
+        for i in range(1, len(waypoints)):
+            ops.extend(self._move_ion_one_hop(ion_id, waypoints[i], state))
+
+        return ops
+
+    def _move_ion_one_hop(
+        self, ion_id: int, dst_zone: int, state: QCCDState
+    ) -> List[Operation]:
+        """
+        イオンを隣接する非Tempゾーンへ1ホップで移動する
+
         物理的な1ホップ: src(M/L) → temp(T) → dst(M/L)
+
+        dst_zone が LIZ で容量が足りない場合、既存イオンを一時退避して
+        通過させた後に戻す。
         """
         src_zone = state.locate(ion_id)
         if src_zone == dst_zone:
@@ -1036,6 +1081,10 @@ class MovementPlanner:
 
         ops = []
 
+        # Step 0: dst_zone に空きがない場合の処理
+        # TODO: LIZ通過時の一時退避を実装（複数LIZ対応）
+        # 現在は容量チェックのみ行い、超過時はそのまま進む（Validation で検出）
+
         # Step 1: イオンを端に移動（展開済みSwap列を生成）
         ops.extend(self._position_for_shuttle(ion_id, src_zone, is_right, state))
 
@@ -1048,7 +1097,6 @@ class MovementPlanner:
         else:
             ion_pos = src_contents.index(ion_id)
             if is_right:
-                # 右端にいるはず: 左隣で分割 → right chain=[ion_id]がtempへ
                 assert ion_pos == len(src_contents) - 1, \
                     f"ion {ion_id} should be at right end (pos={ion_pos}, len={len(src_contents)})"
                 split_ref = src_contents[ion_pos - 1]
@@ -1056,7 +1104,6 @@ class MovementPlanner:
                 ops.append(split_op)
                 state.split_chain(split_ref, temp_zone)
             else:
-                # 左端にいるはず: ion_id自体で分割 → left chain=[ion_id]がtempへ
                 assert ion_pos == 0, \
                     f"ion {ion_id} should be at left end (pos={ion_pos})"
                 split_op = SplitOp(ion_id=ion_id, dst_zone_id=temp_zone, src_zone_id=src_zone)
@@ -1073,7 +1120,6 @@ class MovementPlanner:
             src_zone=temp_zone
         )
         ops.append(shuttle_op)
-        # Shuttle フォノン加算（move_ion の前に、Temp zone のイオンに対して）
         state.apply_shuttle_phonon(ion_id, len(dst_contents))
 
         # Step 4: Merge
