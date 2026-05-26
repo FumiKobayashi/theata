@@ -22,6 +22,7 @@ from ast_def import (
     GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp, Program
 )
 from dag_builder import DAG, DAGNode
+from stabilizer_partitioner import StabilizerPartition
 
 
 # ==========================================
@@ -202,6 +203,30 @@ class QCCDArchitecture:
             ("M", memory_capacity),  # Zone 5
             ("T", temp_capacity),    # Zone 6
         ])
+
+    @classmethod
+    def chained_mlm(cls, num_liz: int, liz_capacity: int = 4,
+                    memory_capacity: int = 20, temp_capacity: int = 20):
+        """T-M-T-(L-T-M-T)*num_liz 構成
+
+        num_liz=1 で simple_mlm と同等。
+        num_liz=2 で T-M-T-L-T-M-T-L-T-M-T （複数 LIZ ベースケース）。
+        """
+        if num_liz < 1:
+            raise ValueError(f"num_liz must be >= 1, got {num_liz}")
+        zones = [
+            ("T", temp_capacity),
+            ("M", memory_capacity),
+            ("T", temp_capacity),
+        ]
+        for _ in range(num_liz):
+            zones.extend([
+                ("L", liz_capacity),
+                ("T", temp_capacity),
+                ("M", memory_capacity),
+                ("T", temp_capacity),
+            ])
+        return cls(zones)
 
 
 # ==========================================
@@ -629,6 +654,33 @@ class MovementPlanner:
         # Interleave用: MS gate後にスタビライザを切り替える
         self._last_ms_stabilizer: Optional[int] = None
         self._preferred_stabilizer: Optional[int] = None
+        # 複数 LIZ 用: ancilla_id -> liz_zone_id の partition（None なら単一 LIZ 互換動作）
+        self.partition: Optional[StabilizerPartition] = None
+
+    def _get_target_liz_for_op(self, op: Operation) -> Optional[int]:
+        """Partition で割り当てられた LIZ を返す。partition が None または
+        op.targets に partition 登録の ancilla が含まれない場合は None。
+        """
+        if self.partition is None:
+            return None
+        for target in op.targets:
+            if self.partition.has(target):
+                return self.partition.get_liz(target)
+        return None
+
+    def _get_target_liz_for_ancilla_set(self, ancilla_ids) -> Optional[int]:
+        """ancilla_id 集合から共通の LIZ を返す。
+        partition が None または ancilla_ids が複数 LIZ にまたがる場合は None。
+        """
+        if self.partition is None or not ancilla_ids:
+            return None
+        liz_ids = set()
+        for a in ancilla_ids:
+            if self.partition.has(a):
+                liz_ids.add(self.partition.get_liz(a))
+        if len(liz_ids) == 1:
+            return next(iter(liz_ids))
+        return None
 
     def _evict_ions(self, zone_id: int, ions: list, state: QCCDState,
                     protected: set = None) -> List[Operation]:
@@ -801,7 +853,13 @@ class MovementPlanner:
             移動 + Measure + Reset の操作列
         """
         ops: List[Operation] = []
-        target_liz = self.architecture.get_liz_zones()[0].id
+        # 複数 LIZ: partition で全 ancilla が同じ LIZ に割り当てられていればそれを使う
+        ancilla_ids = [item[0] for item in pending_measures]
+        partition_liz = self._get_target_liz_for_ancilla_set(ancilla_ids)
+        if partition_liz is not None:
+            target_liz = partition_liz
+        else:
+            target_liz = self.architecture.get_liz_zones()[0].id
 
         # LIZ 上の非ターゲットイオンを退避
         ancilla_set = set(item[0] for item in pending_measures)
@@ -985,9 +1043,14 @@ class MovementPlanner:
                 # 既にLIZにいるイオンのLIZを目標に
                 target_liz = state.locate(ions_in_liz[0])
             else:
-                target_liz = state.get_liz_with_space()
-                if target_liz is None:
-                    target_liz = self.architecture.get_liz_zones()[0].id
+                # 複数 LIZ: partition で割り当てられた LIZ を優先
+                partition_liz = self._get_target_liz_for_op(op)
+                if partition_liz is not None:
+                    target_liz = partition_liz
+                else:
+                    target_liz = state.get_liz_with_space()
+                    if target_liz is None:
+                        target_liz = self.architecture.get_liz_zones()[0].id
 
             result = []
 
@@ -1384,15 +1447,24 @@ class QCCDCompiler:
         self._planner = MovementPlanner(architecture, self.config)
         self._scheduler = Scheduler()
 
-    def compile(self, dag: DAG, initial_placement: Dict[int, int]) -> CompileResult:
+    def compile(
+        self,
+        dag: DAG,
+        initial_placement: Dict[int, int],
+        partition: Optional[StabilizerPartition] = None,
+    ) -> CompileResult:
         """
         Args:
             dag: 依存関係グラフ
             initial_placement: ion_id -> zone_id の初期配置
+            partition: ancilla -> LIZ の割り当て。None の場合は単一 LIZ 互換動作
 
         Returns:
             CompileResult: timesteps（並列化済み）と統計情報
         """
+        # 複数 LIZ 用の partition を MovementPlanner に渡す
+        self._planner.partition = partition
+
         # Phase 1: 平坦なAtomicOp列を生成
         flat_ops = self._planner.plan(dag, initial_placement)
 

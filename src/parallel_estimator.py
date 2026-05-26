@@ -21,6 +21,35 @@ from estimator import TimeParameters
 
 
 @dataclass
+class PerLIZEstimationResult:
+    """LIZごとに ops を振り分けて、各 LIZ の serial 時間と
+    全 LIZ 並列を仮定した total 時間を推定した結果。
+
+    Multi-LIZ 構成で Scheduler の TimeStep が捉えきれない LIZ 間の並列性を
+    補完するための補助 estimator。
+    """
+    per_liz_time: Dict[int, float] = field(default_factory=dict)   # liz_zone_id -> serial time
+    per_liz_op_count: Dict[int, int] = field(default_factory=dict)  # liz_zone_id -> ops count
+    total_time_max: float = 0.0                                     # max over per-liz times（並列上限）
+    total_time_sum: float = 0.0                                     # sum over per-liz times（参考、ほぼ sequential）
+    unassigned_time: float = 0.0                                    # どの LIZ にも attrit できなかった ops の時間
+
+    def __repr__(self):
+        lines = [
+            f"Per-LIZ Parallel Time Estimate",
+            f"  Total (max over LIZ): {self.total_time_max:.2f} μs ({self.total_time_max/1000:.2f} ms)",
+            f"  Sum   (reference)   : {self.total_time_sum:.2f} μs",
+            f"  Unassigned          : {self.unassigned_time:.2f} μs",
+            "  Per-LIZ breakdown:",
+        ]
+        for liz_id in sorted(self.per_liz_time.keys()):
+            t = self.per_liz_time[liz_id]
+            n = self.per_liz_op_count[liz_id]
+            lines.append(f"    LIZ {liz_id}: {t:.2f} μs ({t/1000:.2f} ms),  {n} ops")
+        return "\n".join(lines)
+
+
+@dataclass
 class ParallelEstimationResult:
     """並列時間推定の結果"""
     total_time: float                         # 並列考慮後の合計時間（μs）
@@ -128,6 +157,79 @@ class ParallelEstimator:
             breakdown=breakdown,
             counts=counts,
             timestep_details=timestep_details,
+        )
+
+    def estimate_per_liz(
+        self,
+        timesteps: List[TimeStep],
+        architecture,
+    ) -> PerLIZEstimationResult:
+        """Per-LIZ 時間推定（multi-LIZ 用の補助 estimator）
+
+        Scheduler の TimeStep が捉えきれない LIZ 間の並列性を補完する。
+        各 LIZ について、その LIZ のドメインに属する op を input 順に逐次合計。
+
+        Algorithm:
+            1. 各ゾーンを最近隣 LIZ に attrit する zone→LIZ マッピング構築
+               （同距離なら左の LIZ）
+            2. 各 op について、それが触るゾーン群から所属 LIZ を投票で決定
+            3. 各 LIZ の op 群について duration を逐次合計
+            4. Total = max(per-LIZ times)
+        """
+        liz_zones = [z.id for z in architecture.zones if z.zone_type == "L"]
+        if not liz_zones:
+            return PerLIZEstimationResult()
+
+        # Zone -> nearest LIZ
+        zone_to_liz: Dict[int, int] = {}
+        for z in architecture.zones:
+            best_liz = liz_zones[0]
+            best_dist = abs(z.id - best_liz)
+            for liz in liz_zones[1:]:
+                d = abs(z.id - liz)
+                if d < best_dist:
+                    best_dist = d
+                    best_liz = liz
+            zone_to_liz[z.id] = best_liz
+
+        per_liz_time: Dict[int, float] = {liz: 0.0 for liz in liz_zones}
+        per_liz_count: Dict[int, int] = {liz: 0 for liz in liz_zones}
+        unassigned_time = 0.0
+
+        # Use zone_used logic from Scheduler to determine zones an op touches
+        from qccd_compiler import Scheduler
+        scheduler = Scheduler()
+
+        for ts in timesteps:
+            for op in ts.ops:
+                _, op_time = self._get_operation_time(op)
+                zones = scheduler._zones_used(op)
+                if not zones:
+                    unassigned_time += op_time
+                    continue
+                # Vote: which LIZ does this op touch most?
+                liz_votes: Dict[int, int] = {}
+                for z in zones:
+                    if z in zone_to_liz:
+                        liz = zone_to_liz[z]
+                        liz_votes[liz] = liz_votes.get(liz, 0) + 1
+                if not liz_votes:
+                    unassigned_time += op_time
+                    continue
+                # Tie-break: lower-index LIZ
+                best_liz = max(liz_votes.keys(), key=lambda l: (liz_votes[l], -l))
+                per_liz_time[best_liz] += op_time
+                per_liz_count[best_liz] += 1
+
+        total_max = max(per_liz_time.values()) if per_liz_time else 0.0
+        total_sum = sum(per_liz_time.values())
+
+        return PerLIZEstimationResult(
+            per_liz_time=per_liz_time,
+            per_liz_op_count=per_liz_count,
+            total_time_max=total_max,
+            total_time_sum=total_sum,
+            unassigned_time=unassigned_time,
         )
 
     def _get_operation_time(self, op: Operation) -> tuple:
