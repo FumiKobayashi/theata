@@ -30,6 +30,10 @@ from qccd_parser import parse
 from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from parallel_estimator import ParallelEstimator
+from estimator import TimeParameters
+from ast_def import (
+    GateOp, ResetOp, MeasureOp, ShuttleOp, SwapOp, SplitOp, MergeOp, BarrierOp,
+)
 from baseline.stim_snake_reuse import (
     SnakeReuse1Generator,
     SnakeReuse2Generator,
@@ -183,14 +187,15 @@ def default_noise_params() -> dict:
         't_meas_us': 1000.0,
         't_reset_us': 41.0,
         # Gate error probabilities
-        # 値は 2026/05 時点で先生から提示:
+        # 値は 2026/05 後半の会議で先生から提示:
         #   - p_R = 1e-4 (1量子ビットゲート、確率値)
-        #   - p_meas = 4e-3 (0.4%, 測定エラー)
-        # p_reset, p_MS_default は未定（実験値要確認、placeholder）
+        #   - p_meas = 3.2e-3 (0.32%, 測定エラー)
+        #   - p_reset = 8e-4 (0.08%, リセットエラー)
+        # p_MS_default は placeholder のまま（平井さんのモジュール統合待ち）
         'p_R': 1e-4,
         'p_MS_default': 1e-3,   # fallback when phonon-based not available
-        'p_meas': 4e-3,
-        'p_reset': 1e-3,        # placeholder — 実験値要確認
+        'p_meas': 3.2e-3,
+        'p_reset': 8e-4,
         # Idle dephasing rate: spin dephasing Γ_φ from Hirai et al. Table 1
         'gamma_phi_per_s': 3.0,
     }
@@ -327,6 +332,10 @@ def inject_noise_approach_b(
 
     p_idle_R = compute_p_idle(params['t_R_us'], params['gamma_phi_per_s'])
     p_idle_MS = compute_p_idle(params['t_MS_us'], params['gamma_phi_per_s'])
+    p_idle_meas = compute_p_idle(params['t_meas_us'], params['gamma_phi_per_s'])
+    p_idle_reset = compute_p_idle(params['t_reset_us'], params['gamma_phi_per_s'])
+    p_idle_mr = compute_p_idle(
+        params['t_meas_us'] + params['t_reset_us'], params['gamma_phi_per_s'])
 
     for instruction in circuit:
         name = instruction.name
@@ -359,6 +368,8 @@ def inject_noise_approach_b(
             if params['p_meas'] > 0:
                 noisy.append("X_ERROR", tq, params['p_meas'])
             noisy.append(name, tq)
+            # Idle dephasing during measurement duration (t_meas)
+            _append_idle_zerr(noisy, all_qubits, set(tq), p_idle_meas)
             noisy.append("TICK")
 
         elif name in ('R', 'RX', 'RY', 'RZ'):
@@ -366,6 +377,8 @@ def inject_noise_approach_b(
             noisy.append(name, tq)
             if params['p_reset'] > 0:
                 noisy.append("X_ERROR", tq, params['p_reset'])
+            # Idle dephasing during reset duration (t_reset)
+            _append_idle_zerr(noisy, all_qubits, set(tq), p_idle_reset)
             noisy.append("TICK")
 
         elif name == 'MR':
@@ -376,6 +389,8 @@ def inject_noise_approach_b(
             noisy.append("MR", tq)
             if params['p_reset'] > 0:
                 noisy.append("X_ERROR", tq, params['p_reset'])
+            # Idle dephasing during combined measure+reset duration
+            _append_idle_zerr(noisy, all_qubits, set(tq), p_idle_mr)
             noisy.append("TICK")
 
         else:
@@ -383,6 +398,268 @@ def inject_noise_approach_b(
             noisy.append(instruction)
 
     return noisy
+
+
+# ==========================================
+# Transport-time dephasing (Phase 2)
+# ==========================================
+
+def _per_round_dephasing_time_us(
+    compile_result,
+    time_params: TimeParameters = None,
+) -> float:
+    """Sum of "wait time" per timestep — dephasing exposure NOT covered by
+    inject_noise_approach_b's nominal-gate-duration idle Z_ERROR.
+
+    Per timestep, contribution = (critical-path duration) - (max gate duration in ts):
+      - Pure-transport timestep (no gate op): max_gate = 0 → contribution = crit
+        (entire timestep is wait time for all qubits)
+      - Gate timestep with parallel transport: contribution = crit - max_gate
+        (the "hidden idle" after the gate finishes but before the parallel
+         transport in the same timestep completes — all qubits dephase)
+      - Pure-gate timestep (crit = max_gate): contribution = 0
+        (already fully covered by inject_noise_approach_b's sub-step idle Z_ERROR)
+
+    Why this formula:
+      Per qubit Q, the actual dephasing time = t_wall - t_active_Q.
+      inject_noise_approach_b adds idle Z_ERROR for non-target qubits using each
+      sub-step's NOMINAL duration. The "wait time" after the gate's nominal
+      finish but before the timestep's actual end is missed by inject_b and
+      must be added here. This formula computes that residual uniformly across
+      all qubits (justified by Pauli channel commutativity).
+    """
+    if time_params is None:
+        time_params = TimeParameters()
+    est = ParallelEstimator(params=time_params)
+
+    gate_types = (GateOp, ResetOp, MeasureOp)
+    total = 0.0
+    for ts in compile_result.timesteps:
+        if not ts.ops:
+            continue
+        op_times = [est._get_operation_time(op)[1] for op in ts.ops]
+        crit = max(op_times)
+        gate_durs = [t for op, t in zip(ts.ops, op_times) if isinstance(op, gate_types)]
+        max_gate = max(gate_durs) if gate_durs else 0.0
+        total += (crit - max_gate)
+    return total
+
+
+# Legacy alias (will be removed once callers are migrated)
+_per_round_transport_time_us = _per_round_dephasing_time_us
+
+
+def _per_anchor_wait_times_us(
+    compile_result,
+    time_params: TimeParameters = None,
+) -> list:
+    """For each "anchor op" (RESET / MS / MEASURE) in flat_ops, compute the
+    wait time accumulated since the previous anchor.
+
+    Anchor ops are 1:1 with Stim logical ops:
+      - ResetOp     ↔  Stim R
+      - GateOp(MS)  ↔  Stim CX
+      - MeasureOp   ↔  Stim M
+
+    "Wait time" = sum over intervening timesteps of (crit - max_gate_in_ts).
+    A timestep that contains an anchor "consumes" its accumulated wait into
+    that anchor's slot and starts a fresh accumulator from its post-gate wait.
+
+    Returns:
+        (anchor_list, trailing_wait_us):
+          - anchor_list: list of (anchor_op, wait_us) in flat_ops order
+          - trailing_wait_us: wait time accumulated AFTER the last anchor
+            (caller may attribute to next round's first anchor for cross-round
+            continuity, or drop for the final round)
+
+        Invariant: sum(w for _, w in anchor_list) + trailing_wait_us
+                   == _per_round_dephasing_time_us(compile_result)
+    """
+    if time_params is None:
+        time_params = TimeParameters()
+    est = ParallelEstimator(params=time_params)
+    gate_types = (GateOp, ResetOp, MeasureOp)
+
+    def is_anchor(op):
+        return (isinstance(op, ResetOp)
+                or (isinstance(op, GateOp) and op.type == 'MS')
+                or isinstance(op, MeasureOp))
+
+    wait_per_anchor = []
+    wait_accumulated = 0.0
+
+    for ts in compile_result.timesteps:
+        if not ts.ops:
+            continue
+        op_times = [est._get_operation_time(op)[1] for op in ts.ops]
+        crit = max(op_times)
+        gate_durs = [t for op, t in zip(ts.ops, op_times) if isinstance(op, gate_types)]
+        max_gate = max(gate_durs) if gate_durs else 0.0
+        wait_part = crit - max_gate
+
+        anchors_in_ts = [op for op in ts.ops if is_anchor(op)]
+
+        if anchors_in_ts:
+            # Flush accumulated wait to the first anchor in this timestep
+            wait_per_anchor.append((anchors_in_ts[0], wait_accumulated))
+            # Subsequent anchors in the same timestep (rare in 1-LIZ) get 0
+            for a in anchors_in_ts[1:]:
+                wait_per_anchor.append((a, 0.0))
+            # Restart accumulator with post-gate wait of this timestep
+            wait_accumulated = wait_part
+        else:
+            wait_accumulated += wait_part
+
+    # Trailing wait_accumulated (after last anchor) is returned separately so
+    # the caller can carry it over to the next round's first anchor.
+    return wait_per_anchor, wait_accumulated
+
+
+def inject_per_op_transport_dephasing(
+    noisy_circuit: stim.Circuit,
+    compile_results: list,
+    params: dict = None,
+    time_params: TimeParameters = None,
+) -> stim.Circuit:
+    """(B) Per-anchor variant of transport-time dephasing injection.
+
+    Inserts a Z_ERROR(p_idle(wait)) on all qubits right BEFORE each Stim
+    anchor op (R / CX / M) in the noisy circuit, where `wait` is the wall-
+    clock time accumulated since the previous anchor (transport + hidden
+    idle, computed via `_per_anchor_wait_times_us`).
+
+    Math: Pauli channel commutativity means the per-op spread is exactly
+    equivalent to the lumped per-round version (inject_transport_dephasing),
+    but the per-op form preserves visible timing structure — useful for
+    debugging, validation against compiler timings, and forward-compat with
+    non-commuting noise models (e.g., amplitude damping).
+
+    Final data-qubit M's (those that come after the stab M's at the end of
+    the recompile) are not anchors here and receive no extra Z_ERROR.
+
+    Args:
+        noisy_circuit: output of `inject_noise_approach_b` on the multi-round
+                       recompiled Stim circuit
+        compile_results: list of per-round CompileResult (in time order)
+        params: noise params dict; default = default_noise_params()
+        time_params: TimeParameters for op durations
+    Returns:
+        Noisy Stim circuit with per-anchor transport-time Z_ERROR inserted.
+    """
+    if params is None:
+        params = default_noise_params()
+    if time_params is None:
+        time_params = TimeParameters()
+
+    # Flatten per-anchor wait times across all rounds, carrying trailing wait
+    # of round R into the first anchor of round R+1 (so the round total
+    # matches _per_round_dephasing_time_us exactly).
+    waits = []
+    carry_over = 0.0
+    for cr in compile_results:
+        anchor_list, trailing = _per_anchor_wait_times_us(cr, time_params)
+        for i, (_anchor, w) in enumerate(anchor_list):
+            if i == 0:
+                waits.append(w + carry_over)
+            else:
+                waits.append(w)
+        carry_over = trailing
+    # carry_over from the final round is dropped (no later anchor to receive)
+
+    all_qubits = _get_declared_qubits(noisy_circuit)
+    anchor_names = {'R', 'CX', 'M'}
+
+    out = stim.Circuit()
+    wait_idx = 0
+    for inst in noisy_circuit:
+        if inst.name in anchor_names and wait_idx < len(waits):
+            w = waits[wait_idx]
+            wait_idx += 1
+            if w > 0:
+                p = compute_p_idle(w, params['gamma_phi_per_s'])
+                if p > 0:
+                    out.append("Z_ERROR", all_qubits, p)
+                    out.append("TICK")
+        out.append(inst)
+
+    return out
+
+
+def inject_transport_dephasing(
+    noisy_circuit: stim.Circuit,
+    compile_results: list,
+    params: dict = None,
+    time_params: TimeParameters = None,
+) -> stim.Circuit:
+    """Add per-round transport-time Z_ERROR to an already-noisy Stim circuit.
+
+    For each round (= one CompileResult), sums critical-path durations of
+    pure-transport timesteps to get t_transport_round, then inserts one
+    Z_ERROR(p_idle(t_transport_round)) on **all qubits** right before that
+    round's first stabilizer RESET.
+
+    Lumping all transport time into a single Z_ERROR per round is EXACT for
+    Pauli noise channels:
+      - Pure dephasing has Markov property: E(t1)·E(t2) = E(t1+t2)
+      - Pauli channels commute, so reordering doesn't matter
+
+    Round boundaries are detected by counting RESET (Stim "R") instructions
+    in the noisy circuit and matching against per-round stabilizer counts.
+
+    Args:
+        noisy_circuit: output of inject_noise_approach_b (must contain `R` insts
+                       for each stabilizer)
+        compile_results: list of per-round CompileResult (must match noisy_circuit)
+        params: noise params dict; uses default_noise_params() if None
+        time_params: TimeParameters for op durations; uses defaults if None
+
+    Returns:
+        Noisy Stim circuit with transport-time Z_ERROR inserted.
+    """
+    if params is None:
+        params = default_noise_params()
+    if time_params is None:
+        time_params = TimeParameters()
+
+    # Per-round dephasing exposure time (= timestep wait time not covered by
+    # inject_noise_approach_b's nominal-gate-duration idle Z_ERROR)
+    transport_us = [_per_round_dephasing_time_us(cr, time_params)
+                    for cr in compile_results]
+
+    # Per-round stabilizer count (= RESET-MEASURE pairs in flat_ops)
+    stabs_per_round = [
+        sum(1 for op in cr.flat_ops if isinstance(op, ResetOp))
+        for cr in compile_results
+    ]
+
+    # The R-count at which each round starts (0-indexed running RESET count)
+    round_start_R_idx = [0]
+    for n in stabs_per_round[:-1]:
+        round_start_R_idx.append(round_start_R_idx[-1] + n)
+
+    all_qubits = _get_declared_qubits(noisy_circuit)
+
+    out = stim.Circuit()
+    R_count = 0
+    round_idx = 0
+
+    for instruction in noisy_circuit:
+        if instruction.name == 'R':
+            # Detect round boundary: this R is the first of round_idx?
+            if (round_idx < len(round_start_R_idx)
+                    and R_count == round_start_R_idx[round_idx]):
+                t = transport_us[round_idx]
+                if t > 0 and all_qubits:
+                    p = compute_p_idle(t, params['gamma_phi_per_s'])
+                    if p > 0:
+                        out.append("Z_ERROR", all_qubits, p)
+                        out.append("TICK")
+                round_idx += 1
+            # Count R targets (typically 1 per call but be defensive)
+            R_count += sum(1 for t in instruction.targets_copy() if t.is_qubit_target)
+        out.append(instruction)
+
+    return out
 
 
 # ==========================================
@@ -408,6 +685,10 @@ def inject_noise_approach_b_annotated(
     ms_idx = 0
     p_idle_R = compute_p_idle(params['t_R_us'], params['gamma_phi_per_s'])
     p_idle_MS = compute_p_idle(params['t_MS_us'], params['gamma_phi_per_s'])
+    p_idle_meas = compute_p_idle(params['t_meas_us'], params['gamma_phi_per_s'])
+    p_idle_reset = compute_p_idle(params['t_reset_us'], params['gamma_phi_per_s'])
+    p_idle_mr = compute_p_idle(
+        params['t_meas_us'] + params['t_reset_us'], params['gamma_phi_per_s'])
 
     lines = []
 
@@ -522,34 +803,49 @@ def inject_noise_approach_b_annotated(
             tq = [t.value for t in targets]
             lines.append("")
             lines.append(f"# ==== {name} {fmt_targets(tq)}  (measurement, "
-                         f"idle qubits ignored) ====")
+                         f"t = {params['t_meas_us']:g} μs) ====")
             if params['p_meas'] > 0:
                 lines.append(f"  # Pre-measurement bit-flip error")
                 lines.append(f"X_ERROR({params['p_meas']}) {fmt_targets(tq)}")
             lines.append(f"{name} {fmt_targets(tq)}")
+            # Idle qubits dephase during the measurement duration
+            idle = [q for q in all_qubits if q not in set(tq)]
+            if idle and p_idle_meas > 0:
+                lines.append(f"  # Idle dephasing during measurement")
+                lines.append(f"Z_ERROR({p_idle_meas}) {fmt_targets(idle)}")
             lines.append("TICK")
 
         elif name in ('R', 'RX', 'RY', 'RZ'):
             tq = [t.value for t in targets]
             lines.append("")
             lines.append(f"# ==== {name} {fmt_targets(tq)}  (reset, "
-                         f"idle qubits ignored) ====")
+                         f"t = {params['t_reset_us']:g} μs) ====")
             lines.append(f"{name} {fmt_targets(tq)}")
             if params['p_reset'] > 0:
                 lines.append(f"  # Post-reset bit-flip error")
                 lines.append(f"X_ERROR({params['p_reset']}) {fmt_targets(tq)}")
+            # Idle qubits dephase during the reset duration
+            idle = [q for q in all_qubits if q not in set(tq)]
+            if idle and p_idle_reset > 0:
+                lines.append(f"  # Idle dephasing during reset")
+                lines.append(f"Z_ERROR({p_idle_reset}) {fmt_targets(idle)}")
             lines.append("TICK")
 
         elif name == 'MR':
             tq = [t.value for t in targets]
             lines.append("")
             lines.append(f"# ==== MR {fmt_targets(tq)}  (measure + reset, "
-                         f"idle qubits ignored) ====")
+                         f"t = {params['t_meas_us'] + params['t_reset_us']:g} μs) ====")
             if params['p_meas'] > 0:
                 lines.append(f"X_ERROR({params['p_meas']}) {fmt_targets(tq)}")
             lines.append(f"MR {fmt_targets(tq)}")
             if params['p_reset'] > 0:
                 lines.append(f"X_ERROR({params['p_reset']}) {fmt_targets(tq)}")
+            # Idle qubits dephase during the combined duration
+            idle = [q for q in all_qubits if q not in set(tq)]
+            if idle and p_idle_mr > 0:
+                lines.append(f"  # Idle dephasing during measure+reset")
+                lines.append(f"Z_ERROR({p_idle_mr}) {fmt_targets(idle)}")
             lines.append("TICK")
 
         else:

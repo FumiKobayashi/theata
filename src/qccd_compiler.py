@@ -1418,6 +1418,8 @@ class CompileResult:
     phonon_data: Optional[Dict] = None  # フォノン追跡結果
     final_placement: Optional[Dict[int, int]] = None  # ラウンド終了時のion配置 (ion_id -> zone_id)
     final_zone_contents: Optional[Dict[int, List[int]]] = None  # ゾーン内の並び順 (zone_id -> [ion_ids])
+    dag: Optional[DAG] = None    # 依存関係グラフ（stabilizer_id 等のメタ情報用、Stim 再変換で利用）
+    initial_placement: Optional[Dict[int, int]] = None  # コンパイル開始時の配置（ion_id -> zone_id）
 
     @property
     def operations(self) -> List[Operation]:
@@ -1501,7 +1503,9 @@ class QCCDCompiler:
         return CompileResult(timesteps=timesteps, stats=stats, config=self.config,
                              flat_ops=flat_ops, phonon_data=phonon_data,
                              final_placement=final_placement,
-                             final_zone_contents=final_zone_contents)
+                             final_zone_contents=final_zone_contents,
+                             dag=dag,
+                             initial_placement=dict(initial_placement))
 
     def _calculate_stats(self, ops: List[Operation]) -> Dict[str, int]:
         stats = {"gates": 0, "shuttles": 0, "swaps": 0, "splits": 0, "merges": 0}
