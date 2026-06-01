@@ -1,0 +1,16 @@
+{
+  "distance": 3,
+  "rounds": 3,
+  "shots": 10000,
+  "seed": 42,
+  "transport_mode": "lumped",
+  "errors": 11,
+  "p_L": 0.0011,
+  "stderr_1sigma": 0.00033148001448051134,
+  "per_round_p_L_approx": 0.0003668011933318782,
+  "circuit_files": {
+    "noiseless": "recompiled.stim",
+    "noisy_lumped": "noisy_lumped.stim",
+    "noisy_perop": "noisy_perop.stim"
+  }
+}
