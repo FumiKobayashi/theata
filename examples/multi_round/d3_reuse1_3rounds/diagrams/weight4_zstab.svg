@@ -1,0 +1,878 @@
+<svg viewBox="0 0 6816 736"  version="1.1" xmlns="http://www.w3.org/2000/svg">
+<g id="qubit_lines">
+<path id="qubit_line:0" d="M64,64 L6784,64 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="64">q0</text>
+<path id="qubit_line:1" d="M64,128 L6784,128 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="128">q1</text>
+<path id="qubit_line:2" d="M64,192 L6784,192 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="192">q2</text>
+<path id="qubit_line:3" d="M64,256 L6784,256 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="256">q3</text>
+<path id="qubit_line:4" d="M64,320 L6784,320 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="320">q4</text>
+<path id="qubit_line:5" d="M64,384 L6784,384 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="384">q5</text>
+<path id="qubit_line:6" d="M64,448 L6784,448 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="448">q6</text>
+<path id="qubit_line:7" d="M64,512 L6784,512 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="512">q7</text>
+<path id="qubit_line:8" d="M64,576 L6784,576 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="576">q8</text>
+<path id="qubit_line:9" d="M64,640 L6784,640 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="640">q9</text>
+</g>
+<rect x="80" y="624" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="96" y="640" fill="white">R</text>
+<rect x="144" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="640">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="660">0.0008</text>
+<rect x="144" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="84">0.000122985</text>
+<rect x="144" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="148">0.000122985</text>
+<rect x="144" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="212">0.000122985</text>
+<rect x="144" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="276">0.000122985</text>
+<rect x="144" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="340">0.000122985</text>
+<rect x="144" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="404">0.000122985</text>
+<rect x="144" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="468">0.000122985</text>
+<rect x="144" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="532">0.000122985</text>
+<rect x="144" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="596">0.000122985</text>
+<path d="M68,40 L68,32 L188,32 L188,40 " stroke="black" fill="none"/>
+<path d="M68,696 L68,704 L188,704 L188,696 " stroke="black" fill="none"/>
+<rect x="272" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="84">0.00170575</text>
+<rect x="272" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="148">0.00170575</text>
+<rect x="272" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="212">0.00170575</text>
+<rect x="272" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="276">0.00170575</text>
+<rect x="272" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="340">0.00170575</text>
+<rect x="272" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="404">0.00170575</text>
+<rect x="272" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="468">0.00170575</text>
+<rect x="272" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="532">0.00170575</text>
+<rect x="272" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="596">0.00170575</text>
+<rect x="272" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="660">0.00170575</text>
+<path d="M352,128 L352,640 " stroke="black"/>
+<circle cx="352" cy="128" r="12" stroke="none" fill="black"/>
+<circle cx="352" cy="640" r="12" stroke="black" fill="white"/>
+<path d="M340,640 L364,640 M352,628 L352,652 " stroke="black"/>
+<rect x="400" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="128">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="148">0.0001</text>
+<rect x="400" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="84">1.19999e-05</text>
+<rect x="400" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="212">1.19999e-05</text>
+<rect x="400" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="276">1.19999e-05</text>
+<rect x="400" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="340">1.19999e-05</text>
+<rect x="400" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="404">1.19999e-05</text>
+<rect x="400" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="468">1.19999e-05</text>
+<rect x="400" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="532">1.19999e-05</text>
+<rect x="400" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="596">1.19999e-05</text>
+<rect x="400" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="660">1.19999e-05</text>
+<path d="M324,40 L324,32 L444,32 L444,40 " stroke="black" fill="none"/>
+<path d="M324,696 L324,704 L444,704 L444,696 " stroke="black" fill="none"/>
+<path d="M480,128 L480,640 " stroke="black"/>
+<rect x="464" y="112" width="992" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="960" y="128">PAULI_CHANNEL_2<tspan baseline-shift="sub" font-size="10">0</tspan></text>
+<rect x="464" y="624" width="992" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="960" y="640">PAULI_CHANNEL_2<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="960" y="660">0.00131692,9.93839e-05,0.000146219,0.00131692,0.00231602,0.000146205,9.93757e-05,9.93843e-05,0.000146206,6.40119e-08,5.63297e-08,0.000146219,9.93739e-05,5.51983e-08,6.59587e-08</text>
+<rect x="464" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="480" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="480" y="84">0.000176969</text>
+<rect x="1488" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1504" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1504" y="212">0.000176969</text>
+<rect x="1488" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1504" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1504" y="276">0.000176969</text>
+<rect x="1488" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1504" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1504" y="340">0.000176969</text>
+<rect x="1488" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1504" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1504" y="404">0.000176969</text>
+<rect x="1488" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1504" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1504" y="468">0.000176969</text>
+<rect x="1488" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1504" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1504" y="532">0.000176969</text>
+<rect x="1488" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1504" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1504" y="596">0.000176969</text>
+<path d="M452,40 L452,32 L1532,32 L1532,40 " stroke="black" fill="none"/>
+<path d="M452,696 L452,704 L1532,704 L1532,696 " stroke="black" fill="none"/>
+<rect x="1552" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="128">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="148">0.0001</text>
+<rect x="1552" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="84">1.19999e-05</text>
+<rect x="1552" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="212">1.19999e-05</text>
+<rect x="1552" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="276">1.19999e-05</text>
+<rect x="1552" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="340">1.19999e-05</text>
+<rect x="1552" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="404">1.19999e-05</text>
+<rect x="1552" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="468">1.19999e-05</text>
+<rect x="1552" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="532">1.19999e-05</text>
+<rect x="1552" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="596">1.19999e-05</text>
+<rect x="1552" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="660">1.19999e-05</text>
+<rect x="1616" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="640">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="660">0.0001</text>
+<rect x="1616" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="84">1.19999e-05</text>
+<rect x="1616" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="148">1.19999e-05</text>
+<rect x="1616" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="212">1.19999e-05</text>
+<rect x="1616" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="276">1.19999e-05</text>
+<rect x="1616" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="340">1.19999e-05</text>
+<rect x="1616" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="404">1.19999e-05</text>
+<rect x="1616" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="468">1.19999e-05</text>
+<rect x="1616" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="532">1.19999e-05</text>
+<rect x="1616" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1632" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1632" y="596">1.19999e-05</text>
+<rect x="1680" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="128">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="148">0.0001</text>
+<rect x="1680" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="84">1.19999e-05</text>
+<rect x="1680" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="212">1.19999e-05</text>
+<rect x="1680" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="276">1.19999e-05</text>
+<rect x="1680" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="340">1.19999e-05</text>
+<rect x="1680" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="404">1.19999e-05</text>
+<rect x="1680" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="468">1.19999e-05</text>
+<rect x="1680" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="532">1.19999e-05</text>
+<rect x="1680" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="596">1.19999e-05</text>
+<rect x="1680" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="660">1.19999e-05</text>
+<rect x="1808" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="84">0.00137511</text>
+<rect x="1808" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="148">0.00137511</text>
+<rect x="1808" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="212">0.00137511</text>
+<rect x="1808" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="276">0.00137511</text>
+<rect x="1808" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="340">0.00137511</text>
+<rect x="1808" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="404">0.00137511</text>
+<rect x="1808" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="468">0.00137511</text>
+<rect x="1808" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="532">0.00137511</text>
+<rect x="1808" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="596">0.00137511</text>
+<rect x="1808" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="660">0.00137511</text>
+<path d="M1888,320 L1888,640 " stroke="black"/>
+<circle cx="1888" cy="320" r="12" stroke="none" fill="black"/>
+<circle cx="1888" cy="640" r="12" stroke="black" fill="white"/>
+<path d="M1876,640 L1900,640 M1888,628 L1888,652 " stroke="black"/>
+<rect x="1936" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="320">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="340">0.0001</text>
+<rect x="1936" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="84">1.19999e-05</text>
+<rect x="1936" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="148">1.19999e-05</text>
+<rect x="1936" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="212">1.19999e-05</text>
+<rect x="1936" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="276">1.19999e-05</text>
+<rect x="1936" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="404">1.19999e-05</text>
+<rect x="1936" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="468">1.19999e-05</text>
+<rect x="1936" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="532">1.19999e-05</text>
+<rect x="1936" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="596">1.19999e-05</text>
+<rect x="1936" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="660">1.19999e-05</text>
+<path d="M1860,40 L1860,32 L1980,32 L1980,40 " stroke="black" fill="none"/>
+<path d="M1860,696 L1860,704 L1980,704 L1980,696 " stroke="black" fill="none"/>
+<path d="M2016,320 L2016,640 " stroke="black"/>
+<rect x="2000" y="304" width="992" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="2496" y="320">PAULI_CHANNEL_2<tspan baseline-shift="sub" font-size="10">0</tspan></text>
+<rect x="2000" y="624" width="992" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="2496" y="640">PAULI_CHANNEL_2<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2496" y="660">0.00119201,9.76482e-05,0.000147949,0.00119201,0.00185415,0.000147943,9.76427e-05,9.76533e-05,0.000147942,7.03931e-08,5.73463e-08,0.00014795,9.76383e-05,5.25141e-08,6.12451e-08</text>
+<rect x="2000" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2016" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2016" y="84">0.000176969</text>
+<rect x="2000" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2016" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2016" y="148">0.000176969</text>
+<rect x="2000" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2016" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2016" y="212">0.000176969</text>
+<rect x="2000" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2016" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2016" y="276">0.000176969</text>
+<rect x="3024" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3040" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3040" y="404">0.000176969</text>
+<rect x="3024" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3040" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3040" y="468">0.000176969</text>
+<rect x="3024" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3040" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3040" y="532">0.000176969</text>
+<rect x="3024" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3040" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3040" y="596">0.000176969</text>
+<path d="M1988,40 L1988,32 L3068,32 L3068,40 " stroke="black" fill="none"/>
+<path d="M1988,696 L1988,704 L3068,704 L3068,696 " stroke="black" fill="none"/>
+<rect x="3088" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="320">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="340">0.0001</text>
+<rect x="3088" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="84">1.19999e-05</text>
+<rect x="3088" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="148">1.19999e-05</text>
+<rect x="3088" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="212">1.19999e-05</text>
+<rect x="3088" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="276">1.19999e-05</text>
+<rect x="3088" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="404">1.19999e-05</text>
+<rect x="3088" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="468">1.19999e-05</text>
+<rect x="3088" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="532">1.19999e-05</text>
+<rect x="3088" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="596">1.19999e-05</text>
+<rect x="3088" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3104" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3104" y="660">1.19999e-05</text>
+<rect x="3152" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="640">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="660">0.0001</text>
+<rect x="3152" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="84">1.19999e-05</text>
+<rect x="3152" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="148">1.19999e-05</text>
+<rect x="3152" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="212">1.19999e-05</text>
+<rect x="3152" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="276">1.19999e-05</text>
+<rect x="3152" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="340">1.19999e-05</text>
+<rect x="3152" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="404">1.19999e-05</text>
+<rect x="3152" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="468">1.19999e-05</text>
+<rect x="3152" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="532">1.19999e-05</text>
+<rect x="3152" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3168" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3168" y="596">1.19999e-05</text>
+<rect x="3216" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="320">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="340">0.0001</text>
+<rect x="3216" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="84">1.19999e-05</text>
+<rect x="3216" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="148">1.19999e-05</text>
+<rect x="3216" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="212">1.19999e-05</text>
+<rect x="3216" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="276">1.19999e-05</text>
+<rect x="3216" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="404">1.19999e-05</text>
+<rect x="3216" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="468">1.19999e-05</text>
+<rect x="3216" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="532">1.19999e-05</text>
+<rect x="3216" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="596">1.19999e-05</text>
+<rect x="3216" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3232" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3232" y="660">1.19999e-05</text>
+<rect x="3344" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="84">0.000750769</text>
+<rect x="3344" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="148">0.000750769</text>
+<rect x="3344" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="212">0.000750769</text>
+<rect x="3344" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="276">0.000750769</text>
+<rect x="3344" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="340">0.000750769</text>
+<rect x="3344" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="404">0.000750769</text>
+<rect x="3344" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="468">0.000750769</text>
+<rect x="3344" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="532">0.000750769</text>
+<rect x="3344" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="596">0.000750769</text>
+<rect x="3344" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3360" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3360" y="660">0.000750769</text>
+<path d="M3424,192 L3424,640 " stroke="black"/>
+<circle cx="3424" cy="192" r="12" stroke="none" fill="black"/>
+<circle cx="3424" cy="640" r="12" stroke="black" fill="white"/>
+<path d="M3412,640 L3436,640 M3424,628 L3424,652 " stroke="black"/>
+<rect x="3472" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="192">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="212">0.0001</text>
+<rect x="3472" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="84">1.19999e-05</text>
+<rect x="3472" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="148">1.19999e-05</text>
+<rect x="3472" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="276">1.19999e-05</text>
+<rect x="3472" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="340">1.19999e-05</text>
+<rect x="3472" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="404">1.19999e-05</text>
+<rect x="3472" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="468">1.19999e-05</text>
+<rect x="3472" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="532">1.19999e-05</text>
+<rect x="3472" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="596">1.19999e-05</text>
+<rect x="3472" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3488" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3488" y="660">1.19999e-05</text>
+<path d="M3396,40 L3396,32 L3516,32 L3516,40 " stroke="black" fill="none"/>
+<path d="M3396,696 L3396,704 L3516,704 L3516,696 " stroke="black" fill="none"/>
+<path d="M3552,192 L3552,640 " stroke="black"/>
+<rect x="3536" y="176" width="992" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="4032" y="192">PAULI_CHANNEL_2<tspan baseline-shift="sub" font-size="10">0</tspan></text>
+<rect x="3536" y="624" width="992" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="4032" y="640">PAULI_CHANNEL_2<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4032" y="660">0.00131692,9.93839e-05,0.000146219,0.00131692,0.00231602,0.000146205,9.93757e-05,9.93843e-05,0.000146206,6.40119e-08,5.63297e-08,0.000146219,9.93739e-05,5.51983e-08,6.59587e-08</text>
+<rect x="3536" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3552" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3552" y="84">0.000176969</text>
+<rect x="3536" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3552" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3552" y="148">0.000176969</text>
+<rect x="4560" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4576" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4576" y="276">0.000176969</text>
+<rect x="4560" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4576" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4576" y="340">0.000176969</text>
+<rect x="4560" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4576" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4576" y="404">0.000176969</text>
+<rect x="4560" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4576" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4576" y="468">0.000176969</text>
+<rect x="4560" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4576" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4576" y="532">0.000176969</text>
+<rect x="4560" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4576" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4576" y="596">0.000176969</text>
+<path d="M3524,40 L3524,32 L4604,32 L4604,40 " stroke="black" fill="none"/>
+<path d="M3524,696 L3524,704 L4604,704 L4604,696 " stroke="black" fill="none"/>
+<rect x="4624" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="192">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="212">0.0001</text>
+<rect x="4624" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="84">1.19999e-05</text>
+<rect x="4624" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="148">1.19999e-05</text>
+<rect x="4624" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="276">1.19999e-05</text>
+<rect x="4624" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="340">1.19999e-05</text>
+<rect x="4624" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="404">1.19999e-05</text>
+<rect x="4624" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="468">1.19999e-05</text>
+<rect x="4624" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="532">1.19999e-05</text>
+<rect x="4624" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="596">1.19999e-05</text>
+<rect x="4624" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4640" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4640" y="660">1.19999e-05</text>
+<rect x="4688" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="640">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="660">0.0001</text>
+<rect x="4688" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="84">1.19999e-05</text>
+<rect x="4688" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="148">1.19999e-05</text>
+<rect x="4688" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="212">1.19999e-05</text>
+<rect x="4688" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="276">1.19999e-05</text>
+<rect x="4688" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="340">1.19999e-05</text>
+<rect x="4688" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="404">1.19999e-05</text>
+<rect x="4688" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="468">1.19999e-05</text>
+<rect x="4688" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="532">1.19999e-05</text>
+<rect x="4688" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4704" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4704" y="596">1.19999e-05</text>
+<rect x="4752" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="192">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="212">0.0001</text>
+<rect x="4752" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="84">1.19999e-05</text>
+<rect x="4752" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="148">1.19999e-05</text>
+<rect x="4752" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="276">1.19999e-05</text>
+<rect x="4752" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="340">1.19999e-05</text>
+<rect x="4752" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="404">1.19999e-05</text>
+<rect x="4752" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="468">1.19999e-05</text>
+<rect x="4752" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="532">1.19999e-05</text>
+<rect x="4752" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="596">1.19999e-05</text>
+<rect x="4752" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4768" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4768" y="660">1.19999e-05</text>
+<rect x="4880" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="84">0.000929136</text>
+<rect x="4880" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="148">0.000929136</text>
+<rect x="4880" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="212">0.000929136</text>
+<rect x="4880" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="276">0.000929136</text>
+<rect x="4880" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="340">0.000929136</text>
+<rect x="4880" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="404">0.000929136</text>
+<rect x="4880" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="468">0.000929136</text>
+<rect x="4880" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="532">0.000929136</text>
+<rect x="4880" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="596">0.000929136</text>
+<rect x="4880" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="4896" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="4896" y="660">0.000929136</text>
+<path d="M4960,384 L4960,640 " stroke="black"/>
+<circle cx="4960" cy="384" r="12" stroke="none" fill="black"/>
+<circle cx="4960" cy="640" r="12" stroke="black" fill="white"/>
+<path d="M4948,640 L4972,640 M4960,628 L4960,652 " stroke="black"/>
+<rect x="5008" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="384">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="404">0.0001</text>
+<rect x="5008" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="84">1.19999e-05</text>
+<rect x="5008" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="148">1.19999e-05</text>
+<rect x="5008" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="212">1.19999e-05</text>
+<rect x="5008" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="276">1.19999e-05</text>
+<rect x="5008" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="340">1.19999e-05</text>
+<rect x="5008" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="468">1.19999e-05</text>
+<rect x="5008" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="532">1.19999e-05</text>
+<rect x="5008" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="596">1.19999e-05</text>
+<rect x="5008" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5024" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5024" y="660">1.19999e-05</text>
+<path d="M4932,40 L4932,32 L5052,32 L5052,40 " stroke="black" fill="none"/>
+<path d="M4932,696 L4932,704 L5052,704 L5052,696 " stroke="black" fill="none"/>
+<path d="M5088,384 L5088,640 " stroke="black"/>
+<rect x="5072" y="368" width="992" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="5568" y="384">PAULI_CHANNEL_2<tspan baseline-shift="sub" font-size="10">0</tspan></text>
+<rect x="5072" y="624" width="992" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="5568" y="640">PAULI_CHANNEL_2<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5568" y="660">0.00131692,9.93839e-05,0.000146219,0.00131692,0.00231602,0.000146205,9.93757e-05,9.93843e-05,0.000146206,6.40119e-08,5.63297e-08,0.000146219,9.93739e-05,5.51983e-08,6.59587e-08</text>
+<rect x="5072" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5088" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5088" y="84">0.000176969</text>
+<rect x="5072" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5088" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5088" y="148">0.000176969</text>
+<rect x="5072" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5088" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5088" y="212">0.000176969</text>
+<rect x="5072" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5088" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5088" y="276">0.000176969</text>
+<rect x="5072" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="5088" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="5088" y="340">0.000176969</text>
+<rect x="6096" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6112" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6112" y="468">0.000176969</text>
+<rect x="6096" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6112" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6112" y="532">0.000176969</text>
+<rect x="6096" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6112" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6112" y="596">0.000176969</text>
+<path d="M5060,40 L5060,32 L6140,32 L6140,40 " stroke="black" fill="none"/>
+<path d="M5060,696 L5060,704 L6140,704 L6140,696 " stroke="black" fill="none"/>
+<rect x="6160" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="384">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="404">0.0001</text>
+<rect x="6160" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="84">1.19999e-05</text>
+<rect x="6160" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="148">1.19999e-05</text>
+<rect x="6160" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="212">1.19999e-05</text>
+<rect x="6160" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="276">1.19999e-05</text>
+<rect x="6160" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="340">1.19999e-05</text>
+<rect x="6160" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="468">1.19999e-05</text>
+<rect x="6160" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="532">1.19999e-05</text>
+<rect x="6160" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="596">1.19999e-05</text>
+<rect x="6160" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6176" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6176" y="660">1.19999e-05</text>
+<rect x="6224" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="640">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="660">0.0001</text>
+<rect x="6224" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="84">1.19999e-05</text>
+<rect x="6224" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="148">1.19999e-05</text>
+<rect x="6224" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="212">1.19999e-05</text>
+<rect x="6224" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="276">1.19999e-05</text>
+<rect x="6224" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="340">1.19999e-05</text>
+<rect x="6224" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="404">1.19999e-05</text>
+<rect x="6224" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="468">1.19999e-05</text>
+<rect x="6224" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="532">1.19999e-05</text>
+<rect x="6224" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6240" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6240" y="596">1.19999e-05</text>
+<rect x="6288" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="384">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="404">0.0001</text>
+<rect x="6288" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="84">1.19999e-05</text>
+<rect x="6288" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="148">1.19999e-05</text>
+<rect x="6288" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="212">1.19999e-05</text>
+<rect x="6288" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="276">1.19999e-05</text>
+<rect x="6288" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="340">1.19999e-05</text>
+<rect x="6288" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="468">1.19999e-05</text>
+<rect x="6288" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="532">1.19999e-05</text>
+<rect x="6288" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="596">1.19999e-05</text>
+<rect x="6288" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6304" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6304" y="660">1.19999e-05</text>
+<rect x="6416" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="640">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="660">0.0032</text>
+<rect x="6416" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="84">0.00155425</text>
+<rect x="6416" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="148">0.00155425</text>
+<rect x="6416" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="212">0.00155425</text>
+<rect x="6416" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="276">0.00155425</text>
+<rect x="6416" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="340">0.00155425</text>
+<rect x="6416" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="404">0.00155425</text>
+<rect x="6416" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="468">0.00155425</text>
+<rect x="6416" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="532">0.00155425</text>
+<rect x="6416" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6432" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6432" y="596">0.00155425</text>
+<rect x="6480" y="624" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6496" y="640">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6496" y="660">0.00155425</text>
+<path d="M6404,40 L6404,32 L6524,32 L6524,40 " stroke="black" fill="none"/>
+<path d="M6404,696 L6404,704 L6524,704 L6524,696 " stroke="black" fill="none"/>
+<rect x="6544" y="624" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="6560" y="640" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="6560" y="620">rec[0]</text>
+<rect x="6544" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="64">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="84">0.00299102</text>
+<rect x="6544" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="128">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="148">0.00299102</text>
+<rect x="6544" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="192">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="212">0.00299102</text>
+<rect x="6544" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="256">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="276">0.00299102</text>
+<rect x="6544" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="320">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="340">0.00299102</text>
+<rect x="6544" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="384">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="404">0.00299102</text>
+<rect x="6544" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="448">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="468">0.00299102</text>
+<rect x="6544" y="496" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="512">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="532">0.00299102</text>
+<rect x="6544" y="560" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="6560" y="576">ERR<tspan baseline-shift="sub" font-size="10">Z</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="6560" y="596">0.00299102</text>
+<rect x="6608" y="624" width="160" height="32" stroke="black" fill="lightgray"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="16" x="6688" y="640">DETECTOR</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="6688" y="620">D0 = rec[0]</text>
+</svg>

@@ -106,7 +106,7 @@ def compile_with_phonon(circuit_module_name: str, placement: str = "split_even",
 
 def phonon_to_error_rates(phonon_at_gates: list) -> list:
     """
-    各MSゲートのフォノン数からエラー率を計算
+    各MSゲートのフォノン数からエラー率を計算 (旧 DEPOLARIZE2 用)
 
     Returns:
         [(gate_name, error_rate, max_axial, max_transversal), ...]
@@ -121,6 +121,36 @@ def phonon_to_error_rates(phonon_at_gates: list) -> list:
         err = get_error_rate(max_ax, max_tr)
         error_rates.append((gate_info['gate'], err, max_ax, max_tr))
     return error_rates
+
+
+def phonon_to_pauli_lookup_rates(
+    phonon_at_gates: list,
+    lookup,  # PauliErrorLookup instance
+    mode: str = "strict",
+) -> list:
+    """各 MS ゲートのフォノン数 (transversal) を n_bar として lookup table を引き、
+    15 個の Pauli 確率 (PAULI_CHANNEL_2 入力) を返す。
+
+    Args:
+        phonon_at_gates: compile_result.phonon_data['at_gates'] と同形式の list
+        lookup: PauliErrorLookup インスタンス
+        mode: 'strict' (ceil) / 'optimistic' (floor) / 'round_off' (nearest)
+
+    n_bar の取り方: その MS 関与する 2 qubit の transversal phonon の max を採用する。
+    (両 qubit に同じチャネルを適用するので、悲観側に揃える方が物理的)
+
+    Returns:
+        [(gate_name, pauli_probs_15, n_bar_used, max_axial, max_transversal), ...]
+    """
+    rates = []
+    for gate_info in phonon_at_gates:
+        phonons = gate_info['phonons']
+        max_ax = max(p[0] for p in phonons.values())
+        max_tr = max(p[1] for p in phonons.values())
+        n_bar_used = lookup.select_n_bar(max_tr, mode=mode)
+        pauli_probs = lookup.lookup(max_tr, mode=mode)
+        rates.append((gate_info['gate'], pauli_probs, n_bar_used, max_ax, max_tr))
+    return rates
 
 
 # ==========================================
@@ -251,12 +281,17 @@ def _get_declared_qubits(circuit: stim.Circuit) -> list:
 
 
 def _append_5step_cx(noisy: stim.Circuit, q1: int, q2: int, all_qubits: list,
-                     params: dict, p_MS: float,
+                     params: dict, ms_error,
                      p_idle_R: float, p_idle_MS: float) -> None:
     """Insert 5-step error pattern after a logical CX(q1, q2).
 
     Physical decomposition of trapped-ion CNOT: R(q1) - MS(q1,q2) - R(q1) - R(q2) - R(q1).
     Pattern follows the user's spec (5/4 メモリ): 3 R on q1, 1 MS on (q1,q2), 1 R on q2.
+
+    ms_error:
+      - float (scalar)             → DEPOLARIZE2(ms_error) で 1 つの depolarizing 確率
+      - list/tuple of 15 floats    → PAULI_CHANNEL_2(*15) で 15 個の Pauli 確率
+        (Stim 引数順: IX, IY, IZ, XI, XX, XY, XZ, YI, YX, YY, YZ, ZI, ZX, ZY, ZZ)
     """
     p_R = params['p_R']
 
@@ -267,8 +302,18 @@ def _append_5step_cx(noisy: stim.Circuit, q1: int, q2: int, all_qubits: list,
     noisy.append("TICK")
 
     # Step 2: MS(q1, q2), t_MS
-    if p_MS > 0:
-        noisy.append("DEPOLARIZE2", [q1, q2], p_MS)
+    if isinstance(ms_error, (list, tuple)):
+        # PAULI_CHANNEL_2 — 15 個の Pauli 確率
+        if len(ms_error) != 15:
+            raise ValueError(
+                f"PAULI_CHANNEL_2 needs exactly 15 probs, got {len(ms_error)}"
+            )
+        if any(p > 0 for p in ms_error):
+            noisy.append("PAULI_CHANNEL_2", [q1, q2], list(ms_error))
+    else:
+        # 旧: DEPOLARIZE2(p_MS)
+        if ms_error > 0:
+            noisy.append("DEPOLARIZE2", [q1, q2], float(ms_error))
     _append_idle_zerr(noisy, all_qubits, {q1, q2}, p_idle_MS)
     noisy.append("TICK")
 
@@ -342,21 +387,21 @@ def inject_noise_approach_b(
         targets = instruction.targets_copy()
 
         if name == 'CX':
-            # Split into individual pairs (each gets its own phonon-based p_MS)
+            # Split into individual pairs (each gets its own phonon-based error)
             for i in range(0, len(targets) - 1, 2):
                 q1 = targets[i].value
                 q2 = targets[i + 1].value
 
-                # Per-pair MS error rate
+                # Per-pair MS error: スカラー (DEPOLARIZE2) or 15-float (PAULI_CHANNEL_2)
                 if ms_idx < len(error_rates_ms):
-                    p_MS = error_rates_ms[ms_idx][1]
+                    ms_error = error_rates_ms[ms_idx][1]
                     ms_idx += 1
                 else:
-                    p_MS = params['p_MS_default']
+                    ms_error = params['p_MS_default']
 
                 noisy.append("CX", [q1, q2])
                 _append_5step_cx(noisy, q1, q2, all_qubits, params,
-                                 p_MS, p_idle_R, p_idle_MS)
+                                 ms_error, p_idle_R, p_idle_MS)
 
         elif name == 'H':
             tq = [t.value for t in targets]

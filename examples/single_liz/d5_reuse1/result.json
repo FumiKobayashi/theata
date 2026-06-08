@@ -1,7 +1,7 @@
 {
   "circuit": "d5_reuse1",
   "label": "d5_reuse1",
-  "generated_at": "20260601_185336",
+  "generated_at": "20260608_155901",
   "architecture": {
     "liz_capacity": 4,
     "memory_capacity": 20,

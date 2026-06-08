@@ -33,15 +33,22 @@ from qccd_parser import parse
 from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from formatter import save_compile_artifacts
+from pauli_lookup import PauliErrorLookup
 from stim_recompiler import recompile_to_stim, recompile_multi_round
 from exp_noise_injection import (
     phonon_to_error_rates,
+    phonon_to_pauli_lookup_rates,
     inject_noise_approach_b,
     inject_transport_dephasing,
     inject_per_op_transport_dephasing,
     _per_round_dephasing_time_us,
     default_noise_params,
 )
+
+
+# Pauli-channel lookup table (transversal phonon → 15 Pauli probs, strict mode)
+PAULI_LOOKUP = PauliErrorLookup()
+LOOKUP_MODE = "strict"
 
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -93,11 +100,25 @@ def compile_one(mod_name, placement, arch, initial_zone_contents=None):
 
 
 def get_phonon_error_rates(results):
+    """旧 DEPOLARIZE2 用 — placeholder p_MS のスカラー。"""
     all_gates = []
     for r in results:
         pd = r.phonon_data or {}
         all_gates.extend(pd.get('at_gates', []))
     return phonon_to_error_rates(all_gates)
+
+
+def get_pauli_lookup_rates(results, mode=LOOKUP_MODE):
+    """新 PAULI_CHANNEL_2 用 — 各 MS で 15 個の Pauli 確率を lookup table から取得。
+
+    Returns:
+        [(gate_name, [15 floats], n_bar_used, max_axial, max_transversal), ...]
+    """
+    all_gates = []
+    for r in results:
+        pd = r.phonon_data or {}
+        all_gates.extend(pd.get('at_gates', []))
+    return phonon_to_pauli_lookup_rates(all_gates, PAULI_LOOKUP, mode=mode)
 
 
 # ==========================================
@@ -125,20 +146,35 @@ def build_single_liz(d: int, outdir: Path):
     circuit = recompile_to_stim(result)
     (outdir / "recompiled.stim").write_text(str(circuit), encoding='utf-8')
 
-    # Noise injection (lumped + per-op)
-    error_rates = get_phonon_error_rates([result])
+    # Noise injection: PAULI_CHANNEL_2 lookup (strict mode) for MS,
+    # idle dephasing for everything else (current default approach B).
+    pauli_rates = get_pauli_lookup_rates([result])
     noise_params = default_noise_params()
 
-    noisy_base = inject_noise_approach_b(circuit, error_rates, noise_params)
+    noisy_base = inject_noise_approach_b(circuit, pauli_rates, noise_params)
     noisy_lumped = inject_transport_dephasing(noisy_base, [result], noise_params)
     noisy_perop = inject_per_op_transport_dephasing(noisy_base, [result], noise_params)
     (outdir / "noisy_lumped.stim").write_text(str(noisy_lumped), encoding='utf-8')
     (outdir / "noisy_perop.stim").write_text(str(noisy_perop), encoding='utf-8')
 
-    # result.json (compile artifacts) は save_compile_artifacts で canonical 形式で
-    # 書き出し済み。recompile/noise injection の追加 metadata はファイルからも
-    # 計算可能 (recompile 命令数 = recompiled.stim の line count, wait time は
-    # result.json の par_time + gate counts から導出可) なので追加 JSON は不要。
+    # MS noise (PAULI_CHANNEL_2 lookup) の per-gate metadata を保存
+    pauli_meta = {
+        "lookup_mode": LOOKUP_MODE,
+        "lookup_csv": str(PAULI_LOOKUP.csv_path.name),
+        "n_bar_range": list(PAULI_LOOKUP.n_bar_range),
+        "per_ms": [
+            {
+                "gate": r[0],
+                "n_bar_used": r[2],
+                "max_axial": r[3],
+                "max_transversal": r[4],
+                "sum_error_prob": sum(r[1]),
+            }
+            for r in pauli_rates
+        ],
+    }
+    (outdir / "ms_noise.json").write_text(
+        json.dumps(pauli_meta, indent=2), encoding='utf-8')
 
 
 # ==========================================
@@ -168,18 +204,21 @@ def build_multi_round(d: int, rounds: int, shots: int, outdir: Path, seed: int =
     circuit = recompile_multi_round(results, observable_column=observable)
     (outdir / "recompiled.stim").write_text(str(circuit), encoding='utf-8')
 
-    # Noise injection
-    error_rates = get_phonon_error_rates(results)
+    # Noise injection: PAULI_CHANNEL_2 lookup (strict) for MS, idle dephasing elsewhere
+    pauli_rates = get_pauli_lookup_rates(results)
     noise_params = default_noise_params()
-    noisy_base = inject_noise_approach_b(circuit, error_rates, noise_params)
+    noisy_base = inject_noise_approach_b(circuit, pauli_rates, noise_params)
     noisy_lumped = inject_transport_dephasing(noisy_base, results, noise_params)
     noisy_perop = inject_per_op_transport_dephasing(noisy_base, results, noise_params)
     (outdir / "noisy_lumped.stim").write_text(str(noisy_lumped), encoding='utf-8')
     (outdir / "noisy_perop.stim").write_text(str(noisy_perop), encoding='utf-8')
 
     # MWPM on lumped version (per-op is mathematically near-identical for current shots)
+    # `approximate_disjoint_errors=True` は PAULI_CHANNEL_2 を含む回路で必須
+    # (15 個の Pauli 確率を disjoint と近似する)
     sampler = noisy_lumped.compile_detector_sampler(seed=seed)
-    dem = noisy_lumped.detector_error_model(decompose_errors=True)
+    dem = noisy_lumped.detector_error_model(
+        decompose_errors=True, approximate_disjoint_errors=True)
     matcher = pymatching.Matching.from_detector_error_model(dem)
     det_samples, obs_actual = sampler.sample(shots, separate_observables=True)
     obs_predicted = matcher.decode_batch(det_samples)
@@ -194,6 +233,7 @@ def build_multi_round(d: int, rounds: int, shots: int, outdir: Path, seed: int =
         "shots": shots,
         "seed": seed,
         "transport_mode": "lumped",
+        "ms_noise_model": f"PAULI_CHANNEL_2 (lookup, {LOOKUP_MODE})",
         "errors": errors,
         "p_L": p_L,
         "stderr_1sigma": stderr,
@@ -242,47 +282,64 @@ def build_distance_scan(outdir: Path):
     print(f"  [distance_scan] copied {pngs[0].name} and {jsons[0].name}")
 
     # Write a small README explaining the finding
-    readme = """# Distance scan: d=3 / d=5 / d=7
+    readme = """# Distance scan: d=3 / d=5 (single-LIZ, PAULI_CHANNEL_2 lookup, strict)
 
-Logical error rate p_L as a function of code distance d for the snake_reuse1
+Logical error rate p_L as a function of code distance d for the snake_reuseN
 family (single-LIZ compiler, 3 rounds of QEC, MWPM decoding with pymatching).
 
 ## Files
 - `plot.png` — p_L vs d with 1-sigma error bars (log scale on y)
 - `data.json` — raw numbers (errors, shots, p_L, stderr)
 
-## Key finding: V-shape (non-monotonic)
+## Noise model (current)
 
-| d | p_L (3 rounds) |
-|---|----------------|
-| 3 | ~1.4e-3        |
-| 5 | ~6e-4          |
-| 7 | ~1.3e-3        |
+- **MS gates**: PAULI_CHANNEL_2 with 15 Pauli probabilities looked up from
+  `src/pauli_twirled_error_probabilities.csv`. Per MS, the transversal phonon
+  is taken as `n_bar`, rounded up to the nearest table key (**strict mode**),
+  and the corresponding 15 probabilities are emitted.
+- **R / RESET / MEASURE**: scalar probabilities (p_R=1e-4, p_reset=8e-4,
+  p_meas=3.2e-3). idle dephasing during these ops applies Z_ERROR on
+  non-target qubits.
+- **Transport**: lumped Z_ERROR per round on all qubits, with duration =
+  `wall_clock − sum(gate_active)` (= timestep critical paths minus active
+  gate time), Γ_φ = 3.0 /s.
 
-- d=3 → d=5: improvement (~2.3x), consistent with surface code's distance-dependent protection
-- d=5 → d=7: degradation (statistically significant). Transport-time dephasing
-  scales with qubit count and stabilizer count, eventually overwhelming the
-  exponential suppression the code is supposed to provide.
+## Key finding: monotonic degradation with d (single-LIZ)
+
+| d | p_L (3 rounds, 50k shots) |
+|---|---------------------------|
+| 3 | 1.87e-2 ± 6e-4            |
+| 5 | 3.64e-1 ± 2e-3            |
+
+p_L is **strictly increasing** with d in the single-LIZ compiler — surface
+code protection is overwhelmed by accumulated MS + transport noise that
+itself scales (worse than the code's d-scaling).
+
+Compared to a previous run with placeholder MS rates (where a small
+non-monotonic V-shape appeared: d=3→5 improved, then 5→7 degraded), the
+properly-calibrated noise pushes single-LIZ d=5 well past the point of
+useful protection.
 
 ## Interpretation
 
-Within the *current* single-LIZ snake compiler, larger d brings:
-- More qubits to shuttle (transport time grows)
-- More stabilizers to measure (wall-clock per round grows)
-
-The resulting transport-time idle dephasing (~17-20 ms per round for d=3, more for
-larger d) is the dominant error source. Surface code's exponential protection
-requires the dominant error sources to scale slowly with d — which is not the
-case here.
+Larger d brings:
+- More qubits to shuttle → longer transport time per round
+- More stabilizers per round → more MS gates exposed to motional heating
+- Higher transversal phonon at later MS gates → higher per-MS error
+  (n_bar grows from ~2 at d=3 to ~11 average at d=5, and 20+ at the worst
+  MS in d=5 — already clipping the lookup table)
 
 This is the strongest empirical justification for the multi-LIZ direction:
-parallelizing transport across LIZs should restore d-scaling of p_L.
+parallelizing transport across LIZs should reduce both transport time *and*
+per-MS phonon accumulation, restoring d-scaling of p_L.
 
 ## Caveats
-- p_MS uses a placeholder rate (phonon-based formula not calibrated against
-  real device); absolute p_L values are not reliable, only relative trends.
-- All other gate error rates are from the preliminary specification (5/26
-  meeting): p_R=1e-4, p_meas=3.2e-3, p_reset=8e-4, Γ_φ=3.0 /s.
+- Strict mode (ceil on n_bar) is conservative; round_off / optimistic would
+  give slightly lower numbers. The trend (monotonic increase) is unchanged.
+- d=5 has 1 MS gate with transversal phonon slightly above the table max
+  (20.69 vs table max 20.0); clipped to 20.0 with a runtime warning.
+- d=7 is not included: many MS gates exceed the lookup table range, making
+  comparison less meaningful with current strict-clipping behavior.
 """
     (outdir / 'README.md').write_text(readme, encoding='utf-8')
 

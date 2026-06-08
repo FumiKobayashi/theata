@@ -30,13 +30,18 @@ import matplotlib.pyplot as plt
 from qccd_parser import parse
 from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
+from pauli_lookup import PauliErrorLookup
 from stim_recompiler import recompile_multi_round
 from exp_noise_injection import (
-    phonon_to_error_rates,
+    phonon_to_pauli_lookup_rates,
     inject_noise_approach_b,
     inject_transport_dephasing,
     default_noise_params,
 )
+
+
+PAULI_LOOKUP = PauliErrorLookup()
+LOOKUP_MODE = "strict"
 
 
 # (forward_module_name, reverse_module_name, default_observable_qubits)
@@ -93,9 +98,11 @@ def build_noisy_circuit(forward, reverse, rounds, observable, mode='lumped'):
     for r in results:
         pd = r.phonon_data or {}
         all_phonon_gates.extend(pd.get('at_gates', []))
-    error_rates = phonon_to_error_rates(all_phonon_gates)
+    # PAULI_CHANNEL_2 lookup (strict): transversal phonon → 15 Pauli probs
+    pauli_rates = phonon_to_pauli_lookup_rates(
+        all_phonon_gates, PAULI_LOOKUP, mode=LOOKUP_MODE)
     noise_params = default_noise_params()
-    noisy = inject_noise_approach_b(circuit, error_rates, noise_params)
+    noisy = inject_noise_approach_b(circuit, pauli_rates, noise_params)
     noisy = inject_transport_dephasing(noisy, results, noise_params)
 
     return noisy, results
@@ -105,7 +112,9 @@ def simulate(circuit, shots, seed=None):
     """Returns (n_errors, n_shots)."""
     sampler = (circuit.compile_detector_sampler(seed=seed)
                if seed is not None else circuit.compile_detector_sampler())
-    dem = circuit.detector_error_model(decompose_errors=True)
+    # approximate_disjoint_errors=True: PAULI_CHANNEL_2 を含む回路で必須
+    dem = circuit.detector_error_model(
+        decompose_errors=True, approximate_disjoint_errors=True)
     matcher = pymatching.Matching.from_detector_error_model(dem)
     det_samples, obs_actual = sampler.sample(shots, separate_observables=True)
     obs_predicted = matcher.decode_batch(det_samples)
