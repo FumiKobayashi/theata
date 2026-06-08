@@ -364,7 +364,8 @@ examples/
 │   ├── d5_reuse1/             # d5_reuse1
 │   └── d7_reuse1/             # d7_reuse1
 ├── multi_round/               # 3-round full pipeline (DETECTOR/OBSERVABLE/MWPM)
-│   └── d3_reuse1_3rounds/
+│   ├── d3_reuse1_3rounds/
+│   └── d5_reuse1_3rounds/
 └── distance_scan/             # V-shape finding (d=3/5/7 with 3 rounds)
     ├── plot.png
     ├── data.json
@@ -437,11 +438,15 @@ def main():
             continue
         build_single_liz(d, EXAMPLES_DIR / 'single_liz' / f'd{d}_reuse1')
 
-    # multi_round/ (only d=3 for now — d=5/7 take a long time)
-    print(f"\n[multi_round/] (only d=3, {args.rounds} rounds, {args.shots} shots)")
-    if 3 in args.distances:
-        build_multi_round(3, args.rounds, args.shots,
-                          EXAMPLES_DIR / 'multi_round' / f'd3_reuse1_{args.rounds}rounds')
+    # multi_round/ for d=3 and d=5 (distance_scan で取れる範囲。d=7 は phonon が
+    # lookup table 範囲を多数超えるためここでは出力しない)
+    print(f"\n[multi_round/] (d=3 and d=5, {args.rounds} rounds, {args.shots} shots)")
+    for d in (3, 5):
+        if d in args.distances and d in DISTANCE_CONFIG:
+            build_multi_round(
+                d, args.rounds, args.shots,
+                EXAMPLES_DIR / 'multi_round' / f'd{d}_reuse1_{args.rounds}rounds',
+            )
 
     # distance_scan/
     if not args.skip_distance_scan:

@@ -13,7 +13,8 @@ examples/
 │   ├── d5_reuse1/             # d5_reuse1
 │   └── d7_reuse1/             # d7_reuse1
 ├── multi_round/               # 3-round full pipeline (DETECTOR/OBSERVABLE/MWPM)
-│   └── d3_reuse1_3rounds/
+│   ├── d3_reuse1_3rounds/
+│   └── d5_reuse1_3rounds/
 └── distance_scan/             # V-shape finding (d=3/5/7 with 3 rounds)
     ├── plot.png
     ├── data.json

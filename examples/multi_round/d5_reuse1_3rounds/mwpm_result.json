@@ -1,0 +1,17 @@
+{
+  "distance": 5,
+  "rounds": 3,
+  "shots": 10000,
+  "seed": 42,
+  "transport_mode": "lumped",
+  "ms_noise_model": "PAULI_CHANNEL_2 (lookup, strict)",
+  "errors": 3651,
+  "p_L": 0.3651,
+  "stderr_1sigma": 0.0048145819133129306,
+  "per_round_p_L_approx": 0.1405213182945969,
+  "circuit_files": {
+    "noiseless": "recompiled.stim",
+    "noisy_lumped": "noisy_lumped.stim",
+    "noisy_perop": "noisy_perop.stim"
+  }
+}
