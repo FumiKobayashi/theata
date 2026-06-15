@@ -1,0 +1,38 @@
+[
+  {
+    "d": 3,
+    "n_data_qubits": 9,
+    "circuit": "snake_reuse1",
+    "max_axial": 594.889797874382,
+    "max_transversal": 4.030071566916908,
+    "par_time_ms": 30.013888888888893,
+    "seq_time_ms": 35.491444444444454
+  },
+  {
+    "d": 5,
+    "n_data_qubits": 25,
+    "circuit": "d5_reuse1",
+    "max_axial": 3692.887317104237,
+    "max_transversal": 21.403427222749684,
+    "par_time_ms": 161.8046666666666,
+    "seq_time_ms": 183.35711111111104
+  },
+  {
+    "d": 7,
+    "n_data_qubits": 49,
+    "circuit": "d7_reuse1",
+    "max_axial": 12839.372383723094,
+    "max_transversal": 69.28621369870041,
+    "par_time_ms": 540.6765555555553,
+    "seq_time_ms": 584.9981111111103
+  },
+  {
+    "d": 9,
+    "n_data_qubits": 81,
+    "circuit": "d9_reuse1",
+    "max_axial": 38068.63823326048,
+    "max_transversal": 199.4356005872695,
+    "par_time_ms": 1406.2451111111097,
+    "seq_time_ms": 1473.663888888889
+  }
+]

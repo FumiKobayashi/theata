@@ -1,0 +1,70 @@
+# Architecture: z0:T(20) - z1:M(20) - z2:T(20) - z3:L(4) - z4:T(20) - z5:M(20) - z6:T(20)
+# Initial placement: {0: 1, 1: 5, 2: 5, 3: 5}
+
+# TimeSteps: 49  |  Operations: 57  |  Avg parallelism: 1.16
+# Parallel time: 4955.44 μs (4.96 ms)  |  Sequential time: 5617.56 μs (5.62 ms)  |  Speedup: 1.13x
+
+TS  0 [  100.00μs  @    100.00μs]  [2P]
+  | Split(ion1) z5->z4                         100.00μs
+  | Split(ion0) z1->z2                         100.00μs
+TS  1 [   20.00μs  @    120.00μs]  Swap(2,3) z5
+TS  2 [  100.00μs  @    220.00μs]  Merge z4+z5
+TS  3 [  100.00μs  @    320.00μs]  Split(ion3) z5->z6
+TS  4 [   20.00μs  @    340.00μs]  Swap(1,3) z5
+TS  5 [  100.00μs  @    440.00μs]  Merge z5+z6
+TS  6 [  100.00μs  @    540.00μs]  Split(ion3) z5->z4
+TS  7 [  111.11μs  @    651.11μs]  Shuttle(ion3) z4->(3, 0)
+TS  8 [  100.00μs  @    751.11μs]  Merge z3+z4
+TS  9 [  100.00μs  @    851.11μs]  [2P]
+  | Split(ion1) z5->z4                         100.00μs
+  | Reset(3) z3                                 41.00μs
+TS 10 [  110.56μs  @    961.67μs]  Shuttle(ion0) z2->(3, 0)
+TS 11 [  100.00μs  @   1061.67μs]  Merge z2+z3
+TS 12 [    4.00μs  @   1065.67μs]  R(0) z3
+TS 13 [   59.00μs  @   1124.67μs]  MS(0,3) z3
+TS 14 [    4.00μs  @   1128.67μs]  R(0) z3
+TS 15 [    4.00μs  @   1132.67μs]  R(3) z3
+TS 16 [    4.00μs  @   1136.67μs]  R(0) z3
+TS 17 [  110.00μs  @   1246.67μs]  Shuttle(ion1) z4->(3, 2)
+TS 18 [  100.00μs  @   1346.67μs]  Merge z3+z4
+TS 19 [    4.00μs  @   1350.67μs]  R(1) z3
+TS 20 [   59.00μs  @   1409.67μs]  MS(1,3) z3
+TS 21 [    4.00μs  @   1413.67μs]  R(1) z3
+TS 22 [    4.00μs  @   1417.67μs]  R(3) z3
+TS 23 [    4.00μs  @   1421.67μs]  R(1) z3
+TS 24 [    4.00μs  @   1425.67μs]  R(1) z3
+TS 25 [  100.00μs  @   1525.67μs]  Split(ion0) z3->z2
+TS 26 [  111.11μs  @   1636.78μs]  [2P]
+  | Shuttle(ion0) z2->(1, 0)                   111.11μs
+  | Split(ion3) z3->z4                         100.00μs
+TS 27 [ 1000.00μs  @   2636.78μs]  [3P]
+  | Measure(3) z3                             1000.00μs
+  | Shuttle(ion1) z4->(5, 0)                   110.56μs
+  | Merge z1+z2                                100.00μs
+TS 28 [  100.00μs  @   2736.78μs]  [2P]
+  | Merge z4+z5                                100.00μs
+  | Reset(3) z3                                 41.00μs
+TS 29 [  100.00μs  @   2836.78μs]  Split(ion1) z5->z4
+TS 30 [  110.56μs  @   2947.33μs]  Shuttle(ion1) z4->(3, 1)
+TS 31 [  100.00μs  @   3047.33μs]  Merge z3+z4
+TS 32 [  100.00μs  @   3147.33μs]  [2P]
+  | Split(ion2) z5->z4                         100.00μs
+  | MS(1,3) z3                                  59.00μs
+TS 33 [    4.00μs  @   3151.33μs]  R(1) z3
+TS 34 [    4.00μs  @   3155.33μs]  R(3) z3
+TS 35 [    4.00μs  @   3159.33μs]  R(1) z3
+TS 36 [  110.00μs  @   3269.33μs]  Shuttle(ion2) z4->(3, 2)
+TS 37 [  100.00μs  @   3369.33μs]  Merge z3+z4
+TS 38 [    4.00μs  @   3373.33μs]  R(2) z3
+TS 39 [   59.00μs  @   3432.33μs]  MS(2,3) z3
+TS 40 [    4.00μs  @   3436.33μs]  R(2) z3
+TS 41 [    4.00μs  @   3440.33μs]  R(3) z3
+TS 42 [    4.00μs  @   3444.33μs]  R(2) z3
+TS 43 [  100.00μs  @   3544.33μs]  Split(ion1) z3->z4
+TS 44 [  111.11μs  @   3655.44μs]  Shuttle(ion2) z4->(5, 0)
+TS 45 [  100.00μs  @   3755.44μs]  Merge z4+z5
+TS 46 [  100.00μs  @   3855.44μs]  Split(ion3) z3->z4
+TS 47 [ 1000.00μs  @   4855.44μs]  [2P]
+  | Measure(3) z3                             1000.00μs
+  | Shuttle(ion1) z4->(5, 0)                   110.56μs
+TS 48 [  100.00μs  @   4955.44μs]  Merge z4+z5

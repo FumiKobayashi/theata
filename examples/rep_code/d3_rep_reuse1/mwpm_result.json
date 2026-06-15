@@ -1,0 +1,15 @@
+{
+  "distance": 3,
+  "code": "repetition (bit-flip)",
+  "rounds": 1,
+  "shots": 10000,
+  "seed": 42,
+  "transport_mode": "lumped",
+  "ms_noise_model": "PAULI_CHANNEL_2 (lookup, strict)",
+  "observable": [
+    0
+  ],
+  "errors": 1,
+  "p_L": 0.0001,
+  "stderr_1sigma": 9.999499987499375e-05
+}

@@ -1,0 +1,122 @@
+{
+  "circuit": "d3_rep_reuse1",
+  "label": "d3_rep_reuse1",
+  "generated_at": "20260615_182851",
+  "architecture": {
+    "liz_capacity": 4,
+    "memory_capacity": 20,
+    "temp_capacity": 20,
+    "layout": "z0:T(20) - z1:M(20) - z2:T(20) - z3:L(4) - z4:T(20) - z5:M(20) - z6:T(20)"
+  },
+  "initial_placement": {
+    "1": 1,
+    "3": 1,
+    "0": 5,
+    "2": 5
+  },
+  "compile_config": {
+    "placement_strategy": "greedy_alt",
+    "stabilizer_parallel": false,
+    "gate_selection": "min_id",
+    "memory_reorder": false,
+    "measure_batch_size": 1,
+    "interleave": false,
+    "eviction_strategy": "balanced"
+  },
+  "stats": {
+    "gates": 20,
+    "shuttles": 9,
+    "swaps": 1,
+    "splits": 9,
+    "merges": 9,
+    "resets": 2,
+    "measures": 2,
+    "timesteps": 40
+  },
+  "op_breakdown": {
+    "Split": 9,
+    "Shuttle": 9,
+    "Merge": 9,
+    "Reset": 2,
+    "R": 16,
+    "MS": 4,
+    "Measure": 2,
+    "Swap": 1
+  },
+  "total_ops": 52,
+  "total_timesteps": 40,
+  "seq_time_ms": 5.197555555555556,
+  "par_time_ms": 4.174444444444444,
+  "speedup": 1.245089166888475,
+  "avg_parallelism": 1.3,
+  "phonon": {
+    "max_axial": 88.33888888888887,
+    "max_transversal": 0.5833333333333334,
+    "per_ion_axial": {
+      "1": 88.33888888888887,
+      "3": 65.5611111111111,
+      "0": 65.59444444444443,
+      "2": 65.59444444444443
+    },
+    "per_ion_transversal": {
+      "1": 0.5833333333333334,
+      "3": 0.4333333333333333,
+      "0": 0.4666666666666667,
+      "2": 0.4666666666666667
+    },
+    "at_gates": [
+      {
+        "gate": "MS(0,3)",
+        "phonons": {
+          "0": [
+            27.770833333333336,
+            0.175
+          ],
+          "3": [
+            27.770833333333336,
+            0.175
+          ]
+        }
+      },
+      {
+        "gate": "MS(1,3)",
+        "phonons": {
+          "1": [
+            32.763888888888886,
+            0.2
+          ],
+          "3": [
+            32.763888888888886,
+            0.2
+          ]
+        }
+      },
+      {
+        "gate": "MS(1,3)",
+        "phonons": {
+          "1": [
+            60.534722222222214,
+            0.37499999999999994
+          ],
+          "3": [
+            60.534722222222214,
+            0.37499999999999994
+          ]
+        }
+      },
+      {
+        "gate": "MS(2,3)",
+        "phonons": {
+          "2": [
+            65.5611111111111,
+            0.4333333333333333
+          ],
+          "3": [
+            65.5611111111111,
+            0.4333333333333333
+          ]
+        }
+      }
+    ]
+  }
+}

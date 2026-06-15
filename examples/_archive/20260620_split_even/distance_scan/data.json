@@ -1,0 +1,40 @@
+{
+  "rounds": 3,
+  "shots_per_d": 50000,
+  "seed": 42,
+  "transport_mode": "lumped",
+  "results": [
+    {
+      "d": 3,
+      "forward": "snake_reuse1",
+      "reverse": "snake_reuse1_reverse",
+      "observable": [
+        0,
+        1,
+        2
+      ],
+      "errors": 934,
+      "shots": 50000,
+      "p_L": 0.01868,
+      "stderr_1sigma": 0.0006054924871540521,
+      "per_round_p_L": 0.006265845485572519
+    },
+    {
+      "d": 5,
+      "forward": "d5_reuse1",
+      "reverse": "d5_reuse1_reverse_cnot",
+      "observable": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "errors": 18191,
+      "shots": 50000,
+      "p_L": 0.36382,
+      "stderr_1sigma": 0.002151534371559051,
+      "per_round_p_L": 0.13994411756675595
+    }
+  ]
+}

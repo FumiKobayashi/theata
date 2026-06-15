@@ -176,6 +176,8 @@ def build_compile_result_json(
     circuit_name: Optional[str] = None,
     label: Optional[str] = None,
     valid: Optional[bool] = None,
+    placement_strategy: Optional[str] = None,
+    stabilizer_parallel: Optional[bool] = None,
 ) -> dict:
     """canonical な compile result JSON dict を構築する。
 
@@ -213,6 +215,21 @@ def build_compile_result_json(
         out["initial_placement"] = {
             str(k): v for k, v in initial_placement.items()
         }
+
+    # compile_config: CompilerConfig + placement_strategy (caller指定) を記録
+    # この情報が無いと「同じコンパイラに同じ回路を入れたのに結果が違う」原因の追跡が
+    # 出来なくなる (split_even vs greedy_alt の regression と同種の問題)。必ず保存する。
+    config_dict: Dict = {}
+    if placement_strategy is not None:
+        config_dict["placement_strategy"] = placement_strategy
+    if stabilizer_parallel is not None:
+        config_dict["stabilizer_parallel"] = stabilizer_parallel
+    cc = getattr(compile_result, 'config', None)
+    if cc is not None and hasattr(cc, 'to_dict'):
+        for k, v in cc.to_dict().items():
+            config_dict[k] = v
+    if config_dict:
+        out["compile_config"] = config_dict
 
     # stats: 各 op type の count を上位フィールドに揃える ("gates", "shuttles" 等)
     stats = {
@@ -270,6 +287,8 @@ def save_compile_result_json(
     circuit_name: Optional[str] = None,
     label: Optional[str] = None,
     valid: Optional[bool] = None,
+    placement_strategy: Optional[str] = None,
+    stabilizer_parallel: Optional[bool] = None,
 ) -> None:
     """canonical な compile result JSON をファイルに保存する。
 
@@ -284,6 +303,8 @@ def save_compile_result_json(
         circuit_name=circuit_name,
         label=label,
         valid=valid,
+        placement_strategy=placement_strategy,
+        stabilizer_parallel=stabilizer_parallel,
     )
     p = Path(filepath)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -303,6 +324,8 @@ def save_compile_artifacts(
     circuit_name: Optional[str] = None,
     label: Optional[str] = None,
     valid: Optional[bool] = None,
+    placement_strategy: Optional[str] = None,
+    stabilizer_parallel: Optional[bool] = None,
 ) -> Dict[str, str]:
     """compile_result から canonical な全 artifact を outdir/ に保存する。
 
@@ -329,6 +352,8 @@ def save_compile_artifacts(
         compile_result, str(out / "result.json"),
         initial_placement=initial_placement, arch=arch,
         circuit_name=circuit_name, label=label, valid=valid,
+        placement_strategy=placement_strategy,
+        stabilizer_parallel=stabilizer_parallel,
     )
     return {
         "flat_ops": str(out / "flat_ops.txt"),

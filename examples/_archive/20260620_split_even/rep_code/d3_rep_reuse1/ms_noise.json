@@ -1,0 +1,38 @@
+{
+  "lookup_mode": "strict",
+  "lookup_csv": "pauli_twirled_error_probabilities.csv",
+  "n_bar_range": [
+    0.01,
+    20.0
+  ],
+  "per_ms": [
+    {
+      "gate": "MS(0,3)",
+      "n_bar_used": 0.5,
+      "max_axial": 41.170833333333334,
+      "max_transversal": 0.3083333333333333,
+      "sum_error_prob": 0.0033822773279820755
+    },
+    {
+      "gate": "MS(1,3)",
+      "n_bar_used": 0.5,
+      "max_axial": 50.63055555555555,
+      "max_transversal": 0.3777777777777777,
+      "sum_error_prob": 0.0033822773279820755
+    },
+    {
+      "gate": "MS(1,3)",
+      "n_bar_used": 0.5,
+      "max_axial": 69.24583333333334,
+      "max_transversal": 0.49999999999999994,
+      "sum_error_prob": 0.0033822773279820755
+    },
+    {
+      "gate": "MS(2,3)",
+      "n_bar_used": 0.75,
+      "max_axial": 78.77962962962964,
+      "max_transversal": 0.5574074074074075,
+      "sum_error_prob": 0.00394343755787571
+    }
+  ]
+}

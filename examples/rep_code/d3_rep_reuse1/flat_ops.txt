@@ -1,0 +1,57 @@
+# Architecture: z0:T(20) - z1:M(20) - z2:T(20) - z3:L(4) - z4:T(20) - z5:M(20) - z6:T(20)
+# Initial placement: {1: 1, 3: 1, 0: 5, 2: 5}
+# Total ops: 52
+# Op breakdown: MS=4, Measure=2, Merge=9, R=16, Reset=2, Shuttle=9, Split=9, Swap=1
+
+ 0  Split(ion1) z1->z2
+ 1  Shuttle(ion3) z2->(3, 0)
+ 2  Merge z2+z3
+ 3  Reset(3) z3
+ 4  Split(ion0) z5->z4
+ 5  Shuttle(ion0) z4->(3, 1)
+ 6  Merge z3+z4
+ 7  R(0) z3
+ 8  MS(0,3) z3
+ 9  R(0) z3
+10  R(3) z3
+11  R(0) z3
+12  Split(ion1) z1->z2
+13  Shuttle(ion1) z2->(3, 0)
+14  Merge z2+z3
+15  R(1) z3
+16  MS(1,3) z3
+17  R(1) z3
+18  R(3) z3
+19  R(1) z3
+20  R(1) z3
+21  Split(ion1) z3->z2
+22  Shuttle(ion1) z2->(1, 0)
+23  Merge z1+z2
+24  Split(ion3) z3->z4
+25  Shuttle(ion0) z4->(5, 0)
+26  Merge z4+z5
+27  Measure(3) z3
+28  Reset(3) z3
+29  Split(ion1) z1->z2
+30  Shuttle(ion1) z2->(3, 0)
+31  Merge z2+z3
+32  MS(1,3) z3
+33  R(1) z3
+34  R(3) z3
+35  R(1) z3
+36  Swap(0,2) z5
+37  Split(ion2) z5->z4
+38  Shuttle(ion2) z4->(3, 2)
+39  Merge z3+z4
+40  R(2) z3
+41  MS(2,3) z3
+42  R(2) z3
+43  R(3) z3
+44  R(2) z3
+45  Split(ion1) z3->z2
+46  Shuttle(ion1) z2->(1, 0)
+47  Merge z1+z2
+48  Split(ion3) z3->z4
+49  Shuttle(ion2) z4->(5, 0)
+50  Merge z4+z5
+51  Measure(3) z3

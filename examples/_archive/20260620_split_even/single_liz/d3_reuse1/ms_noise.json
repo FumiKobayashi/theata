@@ -1,0 +1,178 @@
+{
+  "lookup_mode": "strict",
+  "lookup_csv": "pauli_twirled_error_probabilities.csv",
+  "n_bar_range": [
+    0.01,
+    20.0
+  ],
+  "per_ms": [
+    {
+      "gate": "MS(0,9)",
+      "n_bar_used": 0.75,
+      "max_axial": 105.8458333333333,
+      "max_transversal": 0.7229166666666669,
+      "sum_error_prob": 0.00394343755787571
+    },
+    {
+      "gate": "MS(3,9)",
+      "n_bar_used": 0.75,
+      "max_axial": 102.36388888888887,
+      "max_transversal": 0.7027777777777781,
+      "sum_error_prob": 0.00394343755787571
+    },
+    {
+      "gate": "MS(9,0)",
+      "n_bar_used": 1.0,
+      "max_axial": 118.25312499999998,
+      "max_transversal": 0.7989583333333337,
+      "sum_error_prob": 0.004555476377667173
+    },
+    {
+      "gate": "MS(9,1)",
+      "n_bar_used": 1.0,
+      "max_axial": 135.8115740740741,
+      "max_transversal": 0.9365740740740744,
+      "sum_error_prob": 0.004555476377667173
+    },
+    {
+      "gate": "MS(9,3)",
+      "n_bar_used": 1.25,
+      "max_axial": 147.0873263888889,
+      "max_transversal": 1.017881944444445,
+      "sum_error_prob": 0.00522078017516014
+    },
+    {
+      "gate": "MS(9,4)",
+      "n_bar_used": 1.25,
+      "max_axial": 149.37452256944445,
+      "max_transversal": 1.0092447916666671,
+      "sum_error_prob": 0.00522078017516014
+    },
+    {
+      "gate": "MS(1,9)",
+      "n_bar_used": 1.5,
+      "max_axial": 186.37731119791667,
+      "max_transversal": 1.2606445312500008,
+      "sum_error_prob": 0.005932462229865017
+    },
+    {
+      "gate": "MS(4,9)",
+      "n_bar_used": 1.25,
+      "max_axial": 180.24132378472223,
+      "max_transversal": 1.1966015625000006,
+      "sum_error_prob": 0.00522078017516014
+    },
+    {
+      "gate": "MS(2,9)",
+      "n_bar_used": 1.5,
+      "max_axial": 202.71907335069443,
+      "max_transversal": 1.3671289062500007,
+      "sum_error_prob": 0.005932462229865017
+    },
+    {
+      "gate": "MS(5,9)",
+      "n_bar_used": 1.5,
+      "max_axial": 196.52817003038194,
+      "max_transversal": 1.3049755859375007,
+      "sum_error_prob": 0.005932462229865017
+    },
+    {
+      "gate": "MS(9,1)",
+      "n_bar_used": 1.75,
+      "max_axial": 230.84175150553386,
+      "max_transversal": 1.5499285888671885,
+      "sum_error_prob": 0.006680189220538217
+    },
+    {
+      "gate": "MS(9,2)",
+      "n_bar_used": 1.75,
+      "max_axial": 245.60831570095488,
+      "max_transversal": 1.648246256510418,
+      "sum_error_prob": 0.006680189220538217
+    },
+    {
+      "gate": "MS(5,9)",
+      "n_bar_used": 1.75,
+      "max_axial": 235.6233743218316,
+      "max_transversal": 1.5556729329427095,
+      "sum_error_prob": 0.006680189220538217
+    },
+    {
+      "gate": "MS(8,9)",
+      "n_bar_used": 1.75,
+      "max_axial": 253.17376423249416,
+      "max_transversal": 1.6789818250868067,
+      "sum_error_prob": 0.006680189220538217
+    },
+    {
+      "gate": "MS(9,4)",
+      "n_bar_used": 2.0,
+      "max_axial": 298.8467759566695,
+      "max_transversal": 1.982967160373265,
+      "sum_error_prob": 0.00747594367576007
+    },
+    {
+      "gate": "MS(9,5)",
+      "n_bar_used": 2.25,
+      "max_axial": 317.39981690176495,
+      "max_transversal": 2.1009622721354178,
+      "sum_error_prob": 0.008318409330979019
+    },
+    {
+      "gate": "MS(9,7)",
+      "n_bar_used": 2.25,
+      "max_axial": 335.87286515209047,
+      "max_transversal": 2.239126494683161,
+      "sum_error_prob": 0.008318409330979019
+    },
+    {
+      "gate": "MS(9,8)",
+      "n_bar_used": 2.75,
+      "max_axial": 387.74989853651255,
+      "max_transversal": 2.626958605957032,
+      "sum_error_prob": 0.010129545509975935
+    },
+    {
+      "gate": "MS(3,9)",
+      "n_bar_used": 2.5,
+      "max_axial": 368.0175975497776,
+      "max_transversal": 2.499261265055339,
+      "sum_error_prob": 0.00920283713170283
+    },
+    {
+      "gate": "MS(6,9)",
+      "n_bar_used": 3.0,
+      "max_axial": 424.1249186398654,
+      "max_transversal": 2.8686265565321176,
+      "sum_error_prob": 0.011097074798813661
+    },
+    {
+      "gate": "MS(4,9)",
+      "n_bar_used": 3.25,
+      "max_axial": 467.8376069626871,
+      "max_transversal": 3.1689342022705067,
+      "sum_error_prob": 0.012104165486392603
+    },
+    {
+      "gate": "MS(7,9)",
+      "n_bar_used": 3.5,
+      "max_axial": 503.9721232048034,
+      "max_transversal": 3.4274982699076317,
+      "sum_error_prob": 0.013149622449930534
+    },
+    {
+      "gate": "MS(9,6)",
+      "n_bar_used": 3.75,
+      "max_axial": 547.3083885056287,
+      "max_transversal": 3.7126367104899063,
+      "sum_error_prob": 0.01423229552250466
+    },
+    {
+      "gate": "MS(9,7)",
+      "n_bar_used": 4.0,
+      "max_axial": 570.0991806429408,
+      "max_transversal": 3.8660161906839976,
+      "sum_error_prob": 0.015350999419065613
+    }
+  ]
+}

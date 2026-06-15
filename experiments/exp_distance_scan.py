@@ -38,6 +38,7 @@ from exp_noise_injection import (
     inject_transport_dephasing,
     default_noise_params,
 )
+from exp_multi_round import placement_greedy_alt
 
 
 PAULI_LOOKUP = PauliErrorLookup()
@@ -75,11 +76,9 @@ def build_noisy_circuit(forward, reverse, rounds, observable, mode='lumped'):
     mem_cap = max(20, half + len(fwd_mod.ANCILLA_QUBITS) + 4)
     arch = QCCDArchitecture.simple_mlm(liz_capacity=4, memory_capacity=mem_cap)
 
-    initial = {}
-    for i, q in enumerate(fwd_mod.DATA_QUBITS):
-        initial[q] = 1 if i < len(fwd_mod.DATA_QUBITS) // 2 else 5
-    for a in fwd_mod.ANCILLA_QUBITS:
-        initial[a] = 5
+    # greedy_alt placement (canonical, matches exp_build_examples.py)
+    initial = placement_greedy_alt(
+        fwd_mod.DATA_QUBITS, fwd_mod.ANCILLA_QUBITS, fwd_mod)
 
     results = []
     current_placement = initial

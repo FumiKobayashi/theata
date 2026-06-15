@@ -44,6 +44,19 @@ from exp_noise_injection import (
     _per_round_dephasing_time_us,
     default_noise_params,
 )
+from exp_multi_round import placement_greedy_alt
+
+
+# どの placement strategy を使うかの canonical 設定。
+# 2026-04 のポスター期と同じ greedy_alt (回路の登場順に LIZ 近接 zone から左右交互配置)。
+# 過去の split_even は examples/_archive/20260620_split_even/ に保存。
+PLACEMENT_STRATEGY = "greedy_alt"
+
+# d=7 以上は MS gate の transversal phonon が lookup table 上限 (n_bar=20) を多数
+# 超過するため、 noisy.stim は出力しない (出力しても大半が clip artifact になる)。
+# compile artifacts (flat_ops/timesteps/result.json) はそのまま生成して phonon
+# scaling の plot に使う。
+MAX_D_FOR_NOISE = 5
 
 
 # Pauli-channel lookup table (transversal phonon → 15 Pauli probs, strict mode)
@@ -54,11 +67,17 @@ LOOKUP_MODE = "strict"
 REPO_ROOT = Path(__file__).parent.parent
 EXAMPLES_DIR = REPO_ROOT / 'examples'
 
-# (d, forward_module, reverse_module, observable_qubits)
+# (d, forward_module, reverse_module, observable_qubits) — Rotated surface code 系
 DISTANCE_CONFIG = {
     3: ('snake_reuse1', 'snake_reuse1_reverse', [0, 1, 2]),
     5: ('d5_reuse1', 'd5_reuse1_reverse_cnot', [0, 1, 2, 3, 4]),
     7: ('d7_reuse1', 'd7_reuse1_reverse_cnot', [0, 1, 2, 3, 4, 5, 6]),
+}
+
+# Repetition code 系 (bit-flip protection、 Z-stab のみ)
+# (d, module, observable_qubit) — 1 ラウンド only なので reverse 不要
+REP_CODE_CONFIG = {
+    3: ('d3_rep_reuse1', [0]),  # logical Z = Z_0 (任意の単 qubit Z で OK)
 }
 
 
@@ -77,12 +96,12 @@ def make_arch(mod):
 
 
 def initial_placement(mod):
-    initial = {}
-    for i, q in enumerate(mod.DATA_QUBITS):
-        initial[q] = 1 if i < len(mod.DATA_QUBITS) // 2 else 5
-    for a in mod.ANCILLA_QUBITS:
-        initial[a] = 5
-    return initial
+    """Canonical placement: greedy_alt (回路の登場順に LIZ 近接 zone から左右交互配置)。
+
+    過去の split_even (前半 zone 1, 後半 zone 5) 版は examples/_archive/20260620_split_even/
+    に退避済み。 d=3 ベースで par_time が ~30 ms → 27 ms に改善する。
+    """
+    return placement_greedy_alt(mod.DATA_QUBITS, mod.ANCILLA_QUBITS, mod)
 
 
 def compile_one(mod_name, placement, arch, initial_zone_contents=None):
@@ -140,7 +159,16 @@ def build_single_liz(d: int, outdir: Path):
         result, str(outdir),
         initial_placement=placement, arch=arch,
         circuit_name=fwd_name, label=f"d{d}_reuse1",
+        placement_strategy=PLACEMENT_STRATEGY,
+        stabilizer_parallel=False,
     )
+
+    # d=7 以上は MS の transversal phonon が lookup table 上限を多数超えるため、
+    # noisy.stim を出力しても clip artifact だらけになる。 compile artifacts のみ
+    # 残して noisy.stim は skip。
+    if d > MAX_D_FOR_NOISE:
+        print(f"    [skip noisy.stim for d={d}] transversal phonon exceeds lookup max")
+        return
 
     # Recompiled (no detectors, no observable — simplest 1-round logical)
     circuit = recompile_to_stim(result)
@@ -258,6 +286,105 @@ def build_multi_round(d: int, rounds: int, shots: int, outdir: Path, seed: int =
         encoding='utf-8'
     )
     print(f"    p_L = {p_L:.4e} +/- {stderr:.4e}  (errors={errors}/{shots})")
+
+
+# ==========================================
+# Repetition code (single LIZ, 1 round, full pipeline incl. DETECTOR/OBSERVABLE)
+# ==========================================
+
+def build_rep_code(d: int, outdir: Path, shots: int = 10000, seed: int = 42):
+    """d=3 repetition code を 1 ラウンド full pipeline で出力 (スライド用)。
+
+    生成物:
+      - flat_ops.txt, timesteps.txt, result.json (compile artifacts)
+      - recompiled.stim  : 1 ラウンドの clean logical Stim (DETECTOR + OBSERVABLE_INCLUDE)
+        — 便宜的に "入力 Stim" のスタンドインとして使う
+      - noisy_lumped.stim, noisy_perop.stim : ノイズ注入版
+      - ms_noise.json : 各 MS の n_bar / 15 probs sum
+      - mwpm_result.json : 1 ラウンドだけだと意味は薄いが構造確認のため
+    """
+    if d not in REP_CODE_CONFIG:
+        print(f"  [skip rep d={d}] not configured")
+        return
+    mod_name, observable = REP_CODE_CONFIG[d]
+    print(f"  [rep_code d={d}, 1 round] {mod_name}")
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    mod = __import__(mod_name)
+    arch = make_arch(mod)
+    placement = initial_placement(mod)
+    _, result = compile_one(mod_name, placement, arch)
+
+    # compile artifacts
+    save_compile_artifacts(
+        result, str(outdir),
+        initial_placement=placement, arch=arch,
+        circuit_name=mod_name, label=f"d{d}_rep_reuse1",
+        placement_strategy=PLACEMENT_STRATEGY,
+        stabilizer_parallel=False,
+    )
+
+    # recompile 1-round with DETECTOR/OBSERVABLE
+    circuit = recompile_multi_round([result], observable_column=observable)
+    (outdir / "recompiled.stim").write_text(str(circuit), encoding='utf-8')
+
+    # noise injection (PAULI_CHANNEL_2 strict)
+    pauli_rates = get_pauli_lookup_rates([result])
+    noise_params = default_noise_params()
+    noisy_base = inject_noise_approach_b(circuit, pauli_rates, noise_params)
+    noisy_lumped = inject_transport_dephasing(noisy_base, [result], noise_params)
+    noisy_perop = inject_per_op_transport_dephasing(noisy_base, [result], noise_params)
+    (outdir / "noisy_lumped.stim").write_text(str(noisy_lumped), encoding='utf-8')
+    (outdir / "noisy_perop.stim").write_text(str(noisy_perop), encoding='utf-8')
+
+    # MS noise per-gate metadata
+    pauli_meta = {
+        "lookup_mode": LOOKUP_MODE,
+        "lookup_csv": str(PAULI_LOOKUP.csv_path.name),
+        "n_bar_range": list(PAULI_LOOKUP.n_bar_range),
+        "per_ms": [
+            {
+                "gate": r[0],
+                "n_bar_used": r[2],
+                "max_axial": r[3],
+                "max_transversal": r[4],
+                "sum_error_prob": sum(r[1]),
+            }
+            for r in pauli_rates
+        ],
+    }
+    (outdir / "ms_noise.json").write_text(
+        json.dumps(pauli_meta, indent=2), encoding='utf-8')
+
+    # MWPM (1 round の意味は薄いが、構造確認用)
+    try:
+        sampler = noisy_lumped.compile_detector_sampler(seed=seed)
+        dem = noisy_lumped.detector_error_model(
+            decompose_errors=True, approximate_disjoint_errors=True)
+        matcher = pymatching.Matching.from_detector_error_model(dem)
+        det_samples, obs_actual = sampler.sample(shots, separate_observables=True)
+        obs_predicted = matcher.decode_batch(det_samples)
+        errors = int(np.any(obs_predicted != obs_actual, axis=1).sum())
+        p_L = errors / shots
+        stderr = math.sqrt(p_L * (1 - p_L) / shots) if shots > 0 else 0.0
+        mwpm_result = {
+            "distance": d,
+            "code": "repetition (bit-flip)",
+            "rounds": 1,
+            "shots": shots,
+            "seed": seed,
+            "transport_mode": "lumped",
+            "ms_noise_model": f"PAULI_CHANNEL_2 (lookup, {LOOKUP_MODE})",
+            "observable": observable,
+            "errors": errors,
+            "p_L": p_L,
+            "stderr_1sigma": stderr,
+        }
+        (outdir / "mwpm_result.json").write_text(
+            json.dumps(mwpm_result, indent=2), encoding='utf-8')
+        print(f"    p_L = {p_L:.4e} +/- {stderr:.4e}  (errors={errors}/{shots})")
+    except Exception as e:
+        print(f"    [WARN] MWPM skipped: {type(e).__name__}: {e}")
 
 
 # ==========================================
@@ -447,6 +574,12 @@ def main():
                 d, args.rounds, args.shots,
                 EXAMPLES_DIR / 'multi_round' / f'd{d}_reuse1_{args.rounds}rounds',
             )
+
+    # rep_code/ — d=3 repetition code, 1 round only (スライド用)
+    print(f"\n[rep_code/] (d=3 repetition code, 1 round, {args.shots} shots)")
+    for d in REP_CODE_CONFIG:
+        build_rep_code(d, EXAMPLES_DIR / 'rep_code' / f'd{d}_rep_reuse1',
+                       shots=args.shots)
 
     # distance_scan/
     if not args.skip_distance_scan:

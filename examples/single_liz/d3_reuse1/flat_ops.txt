@@ -1,434 +1,392 @@
 # Architecture: z0:T(20) - z1:M(20) - z2:T(20) - z3:L(4) - z4:T(20) - z5:M(20) - z6:T(20)
-# Initial placement: {0: 1, 1: 1, 2: 1, 3: 1, 4: 5, 5: 5, 6: 5, 7: 5, 8: 5, 9: 5}
-# Total ops: 429
-# Op breakdown: MS=24, Measure=8, Merge=96, R=112, Reset=8, Shuttle=49, Split=96, Swap=36
+# Initial placement: {7: 1, 5: 1, 4: 1, 3: 1, 9: 1, 0: 5, 1: 5, 2: 5, 8: 5, 6: 5}
+# Total ops: 387
+# Op breakdown: MS=24, Measure=8, Merge=81, R=112, Reset=8, Shuttle=49, Split=81, Swap=24
 
-  0  Split(ion7) z5->z4
-  1  Swap(8,9) z5
-  2  Merge z4+z5
-  3  Split(ion6) z5->z4
-  4  Split(ion9) z5->z6
-  5  Swap(7,9) z5
-  6  Merge z5+z6
-  7  Merge z4+z5
-  8  Split(ion5) z5->z4
-  9  Split(ion9) z5->z6
- 10  Swap(6,9) z5
- 11  Merge z5+z6
- 12  Merge z4+z5
- 13  Split(ion4) z5->z4
- 14  Split(ion9) z5->z6
- 15  Swap(5,9) z5
- 16  Merge z5+z6
- 17  Merge z4+z5
- 18  Split(ion9) z5->z6
- 19  Swap(4,9) z5
- 20  Merge z5+z6
- 21  Split(ion9) z5->z4
- 22  Shuttle(ion9) z4->(3, 0)
- 23  Merge z3+z4
- 24  Reset(9) z3
- 25  Split(ion1) z1->z2
- 26  Swap(0,1) z1
- 27  Merge z1+z2
- 28  Split(ion1) z1->z0
- 29  Split(ion2) z1->z2
- 30  Swap(0,2) z1
- 31  Merge z1+z2
- 32  Merge z0+z1
- 33  Split(ion2) z1->z0
- 34  Swap(0,3) z1
- 35  Merge z0+z1
- 36  Split(ion3) z1->z2
- 37  Shuttle(ion0) z2->(3, 0)
- 38  Merge z2+z3
- 39  R(0) z3
- 40  MS(0,9) z3
- 41  R(0) z3
- 42  R(9) z3
- 43  R(0) z3
- 44  Split(ion2) z1->z2
- 45  Shuttle(ion3) z2->(3, 0)
- 46  Merge z2+z3
- 47  R(3) z3
- 48  MS(3,9) z3
- 49  R(3) z3
- 50  R(9) z3
- 51  R(3) z3
- 52  Split(ion3) z3->z2
- 53  Shuttle(ion3) z2->(1, 2)
- 54  Merge z1+z2
- 55  Split(ion0) z3->z2
- 56  Shuttle(ion0) z2->(1, 3)
- 57  Merge z1+z2
- 58  Measure(9) z3
- 59  Reset(9) z3
- 60  R(9) z3
- 61  R(9) z3
- 62  R(9) z3
+  0  Split(ion3) z1->z2
+  1  Shuttle(ion9) z2->(3, 0)
+  2  Merge z2+z3
+  3  Reset(9) z3
+  4  Split(ion0) z5->z4
+  5  Shuttle(ion0) z4->(3, 1)
+  6  Merge z3+z4
+  7  R(0) z3
+  8  MS(0,9) z3
+  9  R(0) z3
+ 10  R(9) z3
+ 11  R(0) z3
+ 12  Split(ion4) z1->z2
+ 13  Shuttle(ion3) z2->(3, 0)
+ 14  Merge z2+z3
+ 15  R(3) z3
+ 16  MS(3,9) z3
+ 17  R(3) z3
+ 18  R(9) z3
+ 19  R(3) z3
+ 20  Split(ion3) z3->z2
+ 21  Shuttle(ion3) z2->(1, 3)
+ 22  Merge z1+z2
+ 23  Split(ion9) z3->z4
+ 24  Shuttle(ion0) z4->(5, 0)
+ 25  Merge z4+z5
+ 26  Measure(9) z3
+ 27  Reset(9) z3
+ 28  R(9) z3
+ 29  R(9) z3
+ 30  R(9) z3
+ 31  Split(ion0) z5->z4
+ 32  Shuttle(ion0) z4->(3, 1)
+ 33  Merge z3+z4
+ 34  MS(9,0) z3
+ 35  R(9) z3
+ 36  R(0) z3
+ 37  R(9) z3
+ 38  R(9) z3
+ 39  Split(ion1) z5->z4
+ 40  Shuttle(ion1) z4->(3, 2)
+ 41  Merge z3+z4
+ 42  MS(9,1) z3
+ 43  R(9) z3
+ 44  R(1) z3
+ 45  R(9) z3
+ 46  R(9) z3
+ 47  R(1) z3
+ 48  Split(ion4) z1->z2
+ 49  Shuttle(ion3) z2->(3, 0)
+ 50  Merge z2+z3
+ 51  MS(9,3) z3
+ 52  R(9) z3
+ 53  R(3) z3
+ 54  R(9) z3
+ 55  R(9) z3
+ 56  R(3) z3
+ 57  Split(ion3) z3->z2
+ 58  Shuttle(ion3) z2->(1, 3)
+ 59  Merge z1+z2
+ 60  Split(ion5) z1->z0
+ 61  Swap(4,3) z1
+ 62  Merge z0+z1
  63  Split(ion3) z1->z2
- 64  Shuttle(ion0) z2->(3, 0)
+ 64  Shuttle(ion4) z2->(3, 0)
  65  Merge z2+z3
- 66  MS(9,0) z3
+ 66  MS(9,4) z3
  67  R(9) z3
- 68  R(0) z3
+ 68  R(4) z3
  69  R(9) z3
  70  R(9) z3
- 71  Split(ion2) z1->z2
- 72  Swap(1,2) z1
- 73  Merge z1+z2
- 74  Split(ion2) z1->z0
- 75  Swap(1,3) z1
- 76  Merge z0+z1
- 77  Split(ion3) z1->z2
- 78  Shuttle(ion1) z2->(3, 0)
- 79  Merge z2+z3
- 80  MS(9,1) z3
- 81  R(9) z3
- 82  R(1) z3
- 83  R(9) z3
- 84  R(9) z3
- 85  R(1) z3
- 86  Split(ion2) z1->z2
- 87  Shuttle(ion3) z2->(3, 0)
- 88  Merge z2+z3
- 89  MS(9,3) z3
- 90  R(9) z3
- 91  R(3) z3
+ 71  R(9) z3
+ 72  R(4) z3
+ 73  Split(ion4) z3->z2
+ 74  Shuttle(ion4) z2->(1, 3)
+ 75  Merge z1+z2
+ 76  Split(ion0) z3->z4
+ 77  Shuttle(ion1) z4->(5, 0)
+ 78  Merge z4+z5
+ 79  Split(ion9) z3->z4
+ 80  Shuttle(ion0) z4->(5, 0)
+ 81  Merge z4+z5
+ 82  Measure(9) z3
+ 83  Reset(9) z3
+ 84  Split(ion1) z5->z6
+ 85  Swap(0,1) z5
+ 86  Merge z5+z6
+ 87  Split(ion1) z5->z4
+ 88  Shuttle(ion1) z4->(3, 1)
+ 89  Merge z3+z4
+ 90  MS(1,9) z3
+ 91  R(1) z3
  92  R(9) z3
- 93  R(9) z3
- 94  R(3) z3
- 95  Split(ion3) z3->z2
- 96  Shuttle(ion3) z2->(1, 1)
- 97  Merge z1+z2
- 98  Split(ion4) z5->z4
- 99  Shuttle(ion4) z4->(3, 3)
-100  Merge z3+z4
-101  MS(9,4) z3
-102  R(9) z3
-103  R(4) z3
-104  R(9) z3
-105  R(9) z3
-106  R(9) z3
-107  R(4) z3
-108  Split(ion1) z3->z2
-109  Shuttle(ion1) z2->(1, 2)
-110  Merge z1+z2
-111  Split(ion0) z3->z2
-112  Shuttle(ion0) z2->(1, 3)
-113  Merge z1+z2
-114  Split(ion9) z3->z4
-115  Shuttle(ion4) z4->(5, 0)
-116  Merge z4+z5
-117  Measure(9) z3
-118  Reset(9) z3
-119  Split(ion3) z1->z0
-120  Swap(1,0) z1
-121  Merge z0+z1
-122  Split(ion0) z1->z2
-123  Shuttle(ion1) z2->(3, 0)
-124  Merge z2+z3
-125  MS(1,9) z3
-126  R(1) z3
-127  R(9) z3
-128  R(1) z3
-129  Split(ion4) z5->z4
-130  Shuttle(ion4) z4->(3, 2)
-131  Merge z3+z4
-132  MS(4,9) z3
-133  R(4) z3
-134  R(9) z3
-135  R(4) z3
-136  Split(ion3) z1->z2
-137  Swap(2,3) z1
-138  Merge z1+z2
-139  Split(ion3) z1->z0
-140  Swap(2,0) z1
-141  Merge z0+z1
-142  Split(ion0) z1->z2
-143  Shuttle(ion2) z2->(3, 0)
-144  Merge z2+z3
-145  R(2) z3
-146  MS(2,9) z3
-147  R(2) z3
-148  R(9) z3
-149  R(2) z3
-150  Split(ion2) z3->z2
-151  Shuttle(ion2) z2->(1, 2)
-152  Merge z1+z2
-153  Split(ion5) z5->z4
-154  Shuttle(ion5) z4->(3, 3)
-155  Merge z3+z4
-156  R(5) z3
-157  MS(5,9) z3
-158  R(5) z3
+ 93  R(1) z3
+ 94  Split(ion3) z1->z2
+ 95  Shuttle(ion4) z2->(3, 0)
+ 96  Merge z2+z3
+ 97  MS(4,9) z3
+ 98  R(4) z3
+ 99  R(9) z3
+100  R(4) z3
+101  Split(ion2) z5->z6
+102  Swap(0,2) z5
+103  Merge z5+z6
+104  Split(ion2) z5->z4
+105  Shuttle(ion2) z4->(3, 3)
+106  Merge z3+z4
+107  R(2) z3
+108  MS(2,9) z3
+109  R(2) z3
+110  R(9) z3
+111  R(2) z3
+112  Split(ion9) z3->z4
+113  Swap(4,9) z3
+114  Merge z3+z4
+115  Split(ion9) z3->z2
+116  Split(ion1) z3->z4
+117  Swap(4,1) z3
+118  Merge z3+z4
+119  Merge z2+z3
+120  Split(ion1) z3->z2
+121  Swap(4,2) z3
+122  Merge z2+z3
+123  Split(ion2) z3->z4
+124  Shuttle(ion4) z4->(5, 0)
+125  Merge z4+z5
+126  Split(ion7) z1->z0
+127  Swap(5,3) z1
+128  Merge z0+z1
+129  Split(ion3) z1->z2
+130  Shuttle(ion5) z2->(3, 0)
+131  Merge z2+z3
+132  R(5) z3
+133  MS(5,9) z3
+134  R(5) z3
+135  R(9) z3
+136  R(5) z3
+137  R(5) z3
+138  Split(ion5) z3->z2
+139  Shuttle(ion5) z2->(1, 2)
+140  Merge z1+z2
+141  Split(ion1) z3->z4
+142  Shuttle(ion2) z4->(5, 0)
+143  Merge z4+z5
+144  Split(ion9) z3->z4
+145  Shuttle(ion1) z4->(5, 0)
+146  Merge z4+z5
+147  Measure(9) z3
+148  Reset(9) z3
+149  R(9) z3
+150  R(9) z3
+151  R(9) z3
+152  Split(ion1) z5->z4
+153  Shuttle(ion1) z4->(3, 1)
+154  Merge z3+z4
+155  MS(9,1) z3
+156  R(9) z3
+157  R(1) z3
+158  R(9) z3
 159  R(9) z3
-160  R(5) z3
-161  R(5) z3
-162  Split(ion1) z3->z2
-163  Shuttle(ion1) z2->(1, 3)
-164  Merge z1+z2
-165  Split(ion4) z3->z4
-166  Shuttle(ion5) z4->(5, 0)
-167  Merge z4+z5
-168  Split(ion9) z3->z4
-169  Shuttle(ion4) z4->(5, 0)
-170  Merge z4+z5
-171  Measure(9) z3
-172  Reset(9) z3
-173  R(9) z3
-174  R(9) z3
-175  R(9) z3
-176  Split(ion2) z1->z2
-177  Shuttle(ion1) z2->(3, 0)
-178  Merge z2+z3
-179  MS(9,1) z3
-180  R(9) z3
-181  R(1) z3
+160  Split(ion2) z5->z4
+161  Shuttle(ion2) z4->(3, 2)
+162  Merge z3+z4
+163  MS(9,2) z3
+164  R(9) z3
+165  R(2) z3
+166  R(9) z3
+167  R(9) z3
+168  R(9) z3
+169  Split(ion1) z3->z4
+170  Shuttle(ion2) z4->(5, 0)
+171  Merge z4+z5
+172  Split(ion9) z3->z4
+173  Shuttle(ion1) z4->(5, 0)
+174  Merge z4+z5
+175  Measure(9) z3
+176  Reset(9) z3
+177  Split(ion3) z1->z2
+178  Shuttle(ion5) z2->(3, 0)
+179  Merge z2+z3
+180  MS(5,9) z3
+181  R(5) z3
 182  R(9) z3
-183  R(9) z3
-184  Split(ion0) z1->z2
-185  Shuttle(ion2) z2->(3, 0)
-186  Merge z2+z3
-187  MS(9,2) z3
-188  R(9) z3
-189  R(2) z3
-190  R(9) z3
-191  R(9) z3
-192  R(9) z3
-193  Split(ion2) z3->z2
-194  Shuttle(ion2) z2->(1, 2)
-195  Merge z1+z2
-196  Split(ion1) z3->z2
-197  Shuttle(ion1) z2->(1, 3)
-198  Merge z1+z2
-199  Measure(9) z3
-200  Reset(9) z3
-201  Split(ion5) z5->z6
-202  Swap(4,5) z5
-203  Merge z5+z6
-204  Split(ion5) z5->z4
-205  Shuttle(ion5) z4->(3, 1)
-206  Merge z3+z4
-207  MS(5,9) z3
-208  R(5) z3
-209  R(9) z3
-210  R(5) z3
-211  Split(ion6) z5->z4
-212  Swap(7,8) z5
-213  Merge z4+z5
-214  Split(ion4) z5->z4
-215  Split(ion8) z5->z6
-216  Swap(6,8) z5
-217  Merge z5+z6
-218  Merge z4+z5
-219  Split(ion8) z5->z6
-220  Swap(4,8) z5
-221  Merge z5+z6
-222  Split(ion8) z5->z4
-223  Shuttle(ion8) z4->(3, 2)
-224  Merge z3+z4
-225  R(8) z3
-226  MS(8,9) z3
-227  R(8) z3
-228  R(9) z3
-229  R(8) z3
-230  Split(ion5) z3->z4
-231  Shuttle(ion8) z4->(5, 0)
-232  Merge z4+z5
-233  Split(ion9) z3->z4
-234  Shuttle(ion5) z4->(5, 0)
-235  Merge z4+z5
-236  Measure(9) z3
-237  Reset(9) z3
+183  R(5) z3
+184  Split(ion4) z5->z4
+185  Split(ion8) z5->z6
+186  Swap(0,8) z5
+187  Merge z5+z6
+188  Merge z4+z5
+189  Split(ion2) z5->z4
+190  Split(ion8) z5->z6
+191  Swap(4,8) z5
+192  Merge z5+z6
+193  Merge z4+z5
+194  Split(ion1) z5->z4
+195  Split(ion8) z5->z6
+196  Swap(2,8) z5
+197  Merge z5+z6
+198  Merge z4+z5
+199  Split(ion8) z5->z6
+200  Swap(1,8) z5
+201  Merge z5+z6
+202  Split(ion8) z5->z4
+203  Shuttle(ion8) z4->(3, 2)
+204  Merge z3+z4
+205  R(8) z3
+206  MS(8,9) z3
+207  R(8) z3
+208  R(9) z3
+209  R(8) z3
+210  Split(ion5) z3->z2
+211  Shuttle(ion5) z2->(1, 2)
+212  Merge z1+z2
+213  Split(ion9) z3->z4
+214  Shuttle(ion8) z4->(5, 0)
+215  Merge z4+z5
+216  Measure(9) z3
+217  Reset(9) z3
+218  R(9) z3
+219  R(9) z3
+220  R(9) z3
+221  Split(ion1) z5->z4
+222  Split(ion4) z5->z6
+223  Swap(2,4) z5
+224  Merge z5+z6
+225  Merge z4+z5
+226  Split(ion8) z5->z4
+227  Split(ion4) z5->z6
+228  Swap(1,4) z5
+229  Merge z5+z6
+230  Merge z4+z5
+231  Split(ion4) z5->z6
+232  Swap(8,4) z5
+233  Merge z5+z6
+234  Split(ion4) z5->z4
+235  Shuttle(ion4) z4->(3, 1)
+236  Merge z3+z4
+237  MS(9,4) z3
 238  R(9) z3
-239  R(9) z3
+239  R(4) z3
 240  R(9) z3
-241  Split(ion5) z5->z4
-242  Split(ion4) z5->z6
-243  Swap(8,4) z5
-244  Merge z5+z6
-245  Merge z4+z5
-246  Split(ion4) z5->z6
-247  Swap(5,4) z5
-248  Merge z5+z6
-249  Split(ion4) z5->z4
-250  Shuttle(ion4) z4->(3, 1)
-251  Merge z3+z4
-252  MS(9,4) z3
-253  R(9) z3
-254  R(4) z3
-255  R(9) z3
+241  R(9) z3
+242  R(4) z3
+243  Split(ion3) z1->z2
+244  Shuttle(ion5) z2->(3, 0)
+245  Merge z2+z3
+246  MS(9,5) z3
+247  R(9) z3
+248  R(5) z3
+249  R(9) z3
+250  R(9) z3
+251  Swap(7,3) z1
+252  Split(ion3) z1->z2
+253  Shuttle(ion7) z2->(3, 0)
+254  Merge z2+z3
+255  MS(9,7) z3
 256  R(9) z3
-257  R(4) z3
-258  Split(ion5) z5->z4
-259  Shuttle(ion5) z4->(3, 2)
-260  Merge z3+z4
-261  MS(9,5) z3
-262  R(9) z3
-263  R(5) z3
-264  R(9) z3
-265  R(9) z3
-266  Split(ion8) z5->z4
-267  Swap(6,7) z5
-268  Merge z4+z5
-269  Split(ion7) z5->z6
-270  Swap(8,7) z5
-271  Merge z5+z6
-272  Split(ion7) z5->z4
-273  Shuttle(ion7) z4->(3, 3)
-274  Merge z3+z4
-275  MS(9,7) z3
-276  R(9) z3
-277  R(7) z3
-278  R(9) z3
-279  R(9) z3
-280  R(7) z3
-281  Split(ion9) z3->z2
-282  Split(ion5) z3->z4
-283  Swap(4,5) z3
-284  Merge z3+z4
-285  Merge z2+z3
-286  Split(ion5) z3->z2
-287  Swap(4,7) z3
-288  Merge z2+z3
-289  Split(ion7) z3->z4
-290  Shuttle(ion4) z4->(5, 0)
-291  Merge z4+z5
-292  Split(ion8) z5->z6
-293  Swap(4,8) z5
-294  Merge z5+z6
-295  Split(ion8) z5->z4
-296  Shuttle(ion8) z4->(3, 3)
-297  Merge z3+z4
-298  MS(9,8) z3
-299  R(9) z3
-300  R(8) z3
-301  R(9) z3
-302  R(9) z3
-303  R(9) z3
-304  Split(ion7) z3->z4
-305  Shuttle(ion8) z4->(5, 0)
-306  Merge z4+z5
-307  Split(ion5) z3->z4
-308  Shuttle(ion7) z4->(5, 0)
+257  R(7) z3
+258  R(9) z3
+259  R(9) z3
+260  R(7) z3
+261  Split(ion7) z3->z2
+262  Shuttle(ion7) z2->(1, 1)
+263  Merge z1+z2
+264  Split(ion8) z5->z4
+265  Shuttle(ion8) z4->(3, 3)
+266  Merge z3+z4
+267  MS(9,8) z3
+268  R(9) z3
+269  R(8) z3
+270  R(9) z3
+271  R(9) z3
+272  R(9) z3
+273  Split(ion5) z3->z2
+274  Shuttle(ion5) z2->(1, 2)
+275  Merge z1+z2
+276  Split(ion4) z3->z4
+277  Shuttle(ion8) z4->(5, 0)
+278  Merge z4+z5
+279  Split(ion9) z3->z4
+280  Shuttle(ion4) z4->(5, 0)
+281  Merge z4+z5
+282  Measure(9) z3
+283  Reset(9) z3
+284  Split(ion7) z1->z2
+285  Swap(3,7) z1
+286  Merge z1+z2
+287  Split(ion7) z1->z0
+288  Swap(3,5) z1
+289  Merge z0+z1
+290  Split(ion5) z1->z2
+291  Shuttle(ion3) z2->(3, 0)
+292  Merge z2+z3
+293  MS(3,9) z3
+294  R(3) z3
+295  R(9) z3
+296  R(3) z3
+297  Split(ion2) z5->z4
+298  Swap(0,6) z5
+299  Merge z4+z5
+300  Split(ion1) z5->z4
+301  Split(ion6) z5->z6
+302  Swap(2,6) z5
+303  Merge z5+z6
+304  Merge z4+z5
+305  Split(ion8) z5->z4
+306  Split(ion6) z5->z6
+307  Swap(1,6) z5
+308  Merge z5+z6
 309  Merge z4+z5
-310  Split(ion9) z3->z4
-311  Shuttle(ion5) z4->(5, 0)
-312  Merge z4+z5
-313  Measure(9) z3
-314  Reset(9) z3
-315  Split(ion0) z1->z2
-316  Swap(3,0) z1
-317  Merge z1+z2
-318  Split(ion0) z1->z0
-319  Split(ion2) z1->z2
-320  Swap(3,2) z1
-321  Merge z1+z2
-322  Merge z0+z1
-323  Split(ion2) z1->z0
-324  Swap(3,1) z1
-325  Merge z0+z1
-326  Split(ion1) z1->z2
-327  Shuttle(ion3) z2->(3, 0)
-328  Merge z2+z3
-329  MS(3,9) z3
-330  R(3) z3
+310  Split(ion4) z5->z4
+311  Split(ion6) z5->z6
+312  Swap(8,6) z5
+313  Merge z5+z6
+314  Merge z4+z5
+315  Split(ion6) z5->z6
+316  Swap(4,6) z5
+317  Merge z5+z6
+318  Split(ion6) z5->z4
+319  Shuttle(ion6) z4->(3, 2)
+320  Merge z3+z4
+321  R(6) z3
+322  MS(6,9) z3
+323  R(6) z3
+324  R(9) z3
+325  R(6) z3
+326  Split(ion4) z5->z4
+327  Shuttle(ion4) z4->(3, 3)
+328  Merge z3+z4
+329  MS(4,9) z3
+330  R(4) z3
 331  R(9) z3
-332  R(3) z3
-333  Split(ion8) z5->z4
-334  Swap(4,6) z5
-335  Merge z4+z5
-336  Split(ion7) z5->z4
-337  Split(ion6) z5->z6
-338  Swap(8,6) z5
-339  Merge z5+z6
-340  Merge z4+z5
-341  Split(ion5) z5->z4
-342  Split(ion6) z5->z6
-343  Swap(7,6) z5
-344  Merge z5+z6
-345  Merge z4+z5
-346  Split(ion6) z5->z6
-347  Swap(5,6) z5
-348  Merge z5+z6
-349  Split(ion6) z5->z4
-350  Shuttle(ion6) z4->(3, 2)
-351  Merge z3+z4
-352  R(6) z3
-353  MS(6,9) z3
-354  R(6) z3
-355  R(9) z3
-356  R(6) z3
-357  Split(ion7) z5->z4
-358  Swap(8,4) z5
-359  Merge z4+z5
-360  Split(ion5) z5->z4
-361  Split(ion4) z5->z6
-362  Swap(7,4) z5
-363  Merge z5+z6
-364  Merge z4+z5
-365  Split(ion4) z5->z6
-366  Swap(5,4) z5
-367  Merge z5+z6
-368  Split(ion4) z5->z4
-369  Shuttle(ion4) z4->(3, 3)
-370  Merge z3+z4
-371  MS(4,9) z3
-372  R(4) z3
-373  R(9) z3
-374  R(4) z3
-375  Split(ion3) z3->z2
-376  Shuttle(ion3) z2->(1, 3)
-377  Merge z1+z2
-378  Split(ion7) z5->z6
-379  Swap(5,7) z5
-380  Merge z5+z6
-381  Split(ion7) z5->z4
-382  Shuttle(ion7) z4->(3, 3)
-383  Merge z3+z4
-384  MS(7,9) z3
-385  R(7) z3
-386  R(9) z3
-387  R(7) z3
-388  Split(ion4) z3->z4
-389  Shuttle(ion7) z4->(5, 0)
-390  Merge z4+z5
-391  Split(ion6) z3->z4
-392  Shuttle(ion4) z4->(5, 0)
-393  Merge z4+z5
-394  Split(ion9) z3->z4
-395  Shuttle(ion6) z4->(5, 0)
-396  Merge z4+z5
-397  Measure(9) z3
-398  Reset(9) z3
-399  R(9) z3
-400  R(9) z3
-401  R(9) z3
-402  Split(ion6) z5->z4
-403  Shuttle(ion6) z4->(3, 1)
-404  Merge z3+z4
-405  MS(9,6) z3
-406  R(9) z3
-407  R(6) z3
-408  R(9) z3
-409  R(9) z3
-410  Split(ion7) z5->z6
-411  Swap(4,7) z5
-412  Merge z5+z6
-413  Split(ion7) z5->z4
-414  Shuttle(ion7) z4->(3, 2)
-415  Merge z3+z4
-416  MS(9,7) z3
-417  R(9) z3
-418  R(7) z3
-419  R(9) z3
-420  R(9) z3
-421  R(9) z3
-422  Split(ion6) z3->z4
-423  Shuttle(ion7) z4->(5, 0)
-424  Merge z4+z5
-425  Split(ion9) z3->z4
-426  Shuttle(ion6) z4->(5, 0)
-427  Merge z4+z5
-428  Measure(9) z3
+332  R(4) z3
+333  Split(ion3) z3->z2
+334  Shuttle(ion3) z2->(1, 2)
+335  Merge z1+z2
+336  Split(ion5) z1->z2
+337  Swap(7,5) z1
+338  Merge z1+z2
+339  Split(ion5) z1->z0
+340  Swap(7,3) z1
+341  Merge z0+z1
+342  Split(ion3) z1->z2
+343  Shuttle(ion7) z2->(3, 0)
+344  Merge z2+z3
+345  MS(7,9) z3
+346  R(7) z3
+347  R(9) z3
+348  R(7) z3
+349  Split(ion7) z3->z2
+350  Shuttle(ion7) z2->(1, 2)
+351  Merge z1+z2
+352  Split(ion6) z3->z4
+353  Shuttle(ion4) z4->(5, 0)
+354  Merge z4+z5
+355  Split(ion9) z3->z4
+356  Shuttle(ion6) z4->(5, 0)
+357  Merge z4+z5
+358  Measure(9) z3
+359  Reset(9) z3
+360  R(9) z3
+361  R(9) z3
+362  R(9) z3
+363  Split(ion6) z5->z4
+364  Shuttle(ion6) z4->(3, 1)
+365  Merge z3+z4
+366  MS(9,6) z3
+367  R(9) z3
+368  R(6) z3
+369  R(9) z3
+370  R(9) z3
+371  Split(ion3) z1->z2
+372  Shuttle(ion7) z2->(3, 0)
+373  Merge z2+z3
+374  MS(9,7) z3
+375  R(9) z3
+376  R(7) z3
+377  R(9) z3
+378  R(9) z3
+379  R(9) z3
+380  Split(ion7) z3->z2
+381  Shuttle(ion7) z2->(1, 2)
+382  Merge z1+z2
+383  Split(ion9) z3->z4
+384  Shuttle(ion6) z4->(5, 0)
+385  Merge z4+z5
+386  Measure(9) z3
