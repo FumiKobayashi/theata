@@ -52,6 +52,7 @@ DISTANCE_CIRCUITS = {
     3: ('snake_reuse1', 'snake_reuse1_reverse', [0, 1, 2]),
     5: ('d5_reuse1', 'd5_reuse1_reverse_cnot', [0, 1, 2, 3, 4]),
     7: ('d7_reuse1', 'd7_reuse1_reverse_cnot', [0, 1, 2, 3, 4, 5, 6]),
+    9: ('d9_reuse1', 'd9_reuse1_reverse_cnot', [0, 1, 2, 3, 4, 5, 6, 7, 8]),
 }
 
 
@@ -70,7 +71,8 @@ def _compile_round(circuit_name, initial_placement, arch, initial_zone_contents=
     return result
 
 
-def build_noisy_circuit(forward, reverse, rounds, observable, mode='lumped'):
+def build_noisy_circuit(forward, reverse, rounds, observable, mode='lumped',
+                        override_n_bar=None, phonon_scale=1.0):
     fwd_mod = __import__(forward)
     half = (len(fwd_mod.DATA_QUBITS) + 1) // 2
     mem_cap = max(20, half + len(fwd_mod.ANCILLA_QUBITS) + 4)
@@ -97,9 +99,11 @@ def build_noisy_circuit(forward, reverse, rounds, observable, mode='lumped'):
     for r in results:
         pd = r.phonon_data or {}
         all_phonon_gates.extend(pd.get('at_gates', []))
-    # PAULI_CHANNEL_2 lookup (strict): transversal phonon → 15 Pauli probs
+    # PAULI_CHANNEL_2 lookup (strict): transversal phonon × phonon_scale → 15 Pauli probs
+    # override_n_bar が指定されていれば全 MS で固定値 (= heating 寄与 0)
     pauli_rates = phonon_to_pauli_lookup_rates(
-        all_phonon_gates, PAULI_LOOKUP, mode=LOOKUP_MODE)
+        all_phonon_gates, PAULI_LOOKUP, mode=LOOKUP_MODE,
+        override_n_bar=override_n_bar, phonon_scale=phonon_scale)
     noise_params = default_noise_params()
     noisy = inject_noise_approach_b(circuit, pauli_rates, noise_params)
     noisy = inject_transport_dephasing(noisy, results, noise_params)
@@ -129,7 +133,25 @@ def main():
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--outdir', default='results/noise_injection',
                         help='Output directory for plot+JSON')
+    parser.add_argument('--no-heating', action='store_true',
+                        help='Force n_bar=0.01 for all MS gates (= zero heating '
+                             'contribution scenario). Lookup table is no longer '
+                             'exceeded, so d=9 becomes simulatable too.')
+    parser.add_argument('--phonon-scale', type=float, default=1.0,
+                        help='Multiplier on transversal phonon at each MS '
+                             '(1.0 = no scaling, 0.5 = half heating, etc.). '
+                             '--no-heating で上書きされる。')
     args = parser.parse_args()
+
+    override_n_bar = 0.01 if args.no_heating else None
+    phonon_scale = args.phonon_scale
+    if args.no_heating:
+        label_suffix = '_no_heating'
+    elif phonon_scale != 1.0:
+        # ファイル名に scale を埋め込む (例: _scale0.5)
+        label_suffix = f'_scale{phonon_scale}'
+    else:
+        label_suffix = ''
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     outdir = Path(args.outdir)
@@ -140,6 +162,13 @@ def main():
         'shots_per_d': args.shots,
         'seed': args.seed,
         'transport_mode': 'lumped',
+        'heating_mode': (
+            'off (n_bar=0.01 forced)' if args.no_heating else
+            (f'scaled ({phonon_scale}x transversal phonon)' if phonon_scale != 1.0
+             else 'on (actual transversal phonon)')
+        ),
+        'override_n_bar': override_n_bar,
+        'phonon_scale': phonon_scale,
         'results': [],
     }
 
@@ -149,7 +178,9 @@ def main():
             continue
         fwd, rev, obs = DISTANCE_CIRCUITS[d]
         print(f"=== d={d} ({fwd} / {rev}, observable={obs}) ===")
-        noisy, results = build_noisy_circuit(fwd, rev, args.rounds, obs)
+        noisy, results = build_noisy_circuit(
+            fwd, rev, args.rounds, obs,
+            override_n_bar=override_n_bar, phonon_scale=phonon_scale)
         # Quick info
         n_qubits = noisy.num_qubits
         n_inst = sum(1 for _ in noisy)
@@ -177,7 +208,7 @@ def main():
         })
 
     # Save JSON
-    json_path = outdir / f'distance_scan_{timestamp}.json'
+    json_path = outdir / f'distance_scan{label_suffix}_{timestamp}.json'
     with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2)
     print(f"\nSaved JSON: {json_path}")
@@ -191,6 +222,13 @@ def main():
     pLs = [r['p_L'] for r in data['results']]
     errs = [r['stderr_1sigma'] for r in data['results']]
 
+    # 短い title (グラフ枠で見切れにくい)
+    if args.no_heating:
+        title = 'error vs distance (heating free)'
+    elif phonon_scale != 1.0:
+        title = f'error vs distance (heating x{phonon_scale})'
+    else:
+        title = 'error vs distance'
     fig, ax = plt.subplots(figsize=(6, 4.5))
     ax.errorbar(ds, pLs, yerr=errs, fmt='o-', capsize=4, markersize=8,
                 color='C0', label=f'{args.rounds} rounds, {args.shots} shots/d')
@@ -198,12 +236,11 @@ def main():
     ax.set_ylabel(r'Logical error rate $p_L$')
     ax.set_yscale('log')
     ax.set_xticks(ds)
-    ax.set_title(f'Logical error vs distance (d={ds}, {args.rounds} rounds, '
-                 f'snake_reuse1 family)')
+    ax.set_title(title)
     ax.grid(True, which='both', alpha=0.3)
     ax.legend()
     fig.tight_layout()
-    png_path = outdir / f'distance_scan_{timestamp}.png'
+    png_path = outdir / f'distance_scan{label_suffix}_{timestamp}.png'
     fig.savefig(png_path, dpi=150)
     print(f"Saved plot: {png_path}")
 

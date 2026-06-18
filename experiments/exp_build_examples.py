@@ -337,6 +337,41 @@ def build_rep_code(d: int, outdir: Path, shots: int = 10000, seed: int = 42):
     (outdir / "noisy_lumped.stim").write_text(str(noisy_lumped), encoding='utf-8')
     (outdir / "noisy_perop.stim").write_text(str(noisy_perop), encoding='utf-8')
 
+    # SVG diagrams (Stim の timeline-svg) — スライド・先生共有用。
+    # cairosvg がインストールされていれば PNG も合わせて生成。
+    diagrams_dir = outdir / "diagrams"
+    diagrams_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        import cairosvg
+        import re
+        have_cairo = True
+    except ImportError:
+        have_cairo = False
+
+    # clean から DETECTOR / OBSERVABLE_INCLUDE を取り除いた version
+    # (= 純粋な logical 回路として描画したい場合用)
+    import stim as _stim
+    clean_no_det = _stim.Circuit()
+    for inst in circuit:
+        if inst.name in ('DETECTOR', 'OBSERVABLE_INCLUDE'):
+            continue
+        clean_no_det.append(inst)
+
+    for label, c in (("clean", circuit),
+                     ("clean_no_detector", clean_no_det),
+                     ("noisy_lumped", noisy_lumped),
+                     ("noisy_perop", noisy_perop)):
+        svg_text = str(c.diagram("timeline-svg"))
+        svg_path = diagrams_dir / f"{label}.svg"
+        svg_path.write_text(svg_text, encoding='utf-8')
+        if have_cairo:
+            # viewBox 幅に応じて最大 3600px 幅の PNG を生成
+            m = re.search(r'viewBox="\d+\s+\d+\s+(\d+)\s+\d+"', svg_text)
+            target_w = min(3600, int(m.group(1)) * 3) if m else 3600
+            cairosvg.svg2png(url=str(svg_path),
+                             write_to=str(svg_path.with_suffix('.png')),
+                             output_width=target_w)
+
     # MS noise per-gate metadata
     pauli_meta = {
         "lookup_mode": LOOKUP_MODE,

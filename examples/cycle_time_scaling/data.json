@@ -1,0 +1,86 @@
+{
+  "greedy_alt (canonical)": [
+    {
+      "d": 3,
+      "par_time_ms": 26.918555555555553,
+      "seq_time_ms": 32.24422222222222,
+      "compile_config": {
+        "placement_strategy": "greedy_alt",
+        "stabilizer_parallel": false,
+        "gate_selection": "min_id",
+        "memory_reorder": false,
+        "measure_batch_size": 1,
+        "interleave": false,
+        "eviction_strategy": "balanced"
+      }
+    },
+    {
+      "d": 5,
+      "par_time_ms": 120.9301111111111,
+      "seq_time_ms": 148.61655555555555,
+      "compile_config": {
+        "placement_strategy": "greedy_alt",
+        "stabilizer_parallel": false,
+        "gate_selection": "min_id",
+        "memory_reorder": false,
+        "measure_batch_size": 1,
+        "interleave": false,
+        "eviction_strategy": "balanced"
+      }
+    },
+    {
+      "d": 7,
+      "par_time_ms": 376.5344444444442,
+      "seq_time_ms": 448.64144444444383,
+      "compile_config": {
+        "placement_strategy": "greedy_alt",
+        "stabilizer_parallel": false,
+        "gate_selection": "min_id",
+        "memory_reorder": false,
+        "measure_batch_size": 1,
+        "interleave": false,
+        "eviction_strategy": "balanced"
+      }
+    },
+    {
+      "d": 9,
+      "par_time_ms": 921.2210000000006,
+      "seq_time_ms": 1066.532777777778,
+      "compile_config": {
+        "placement_strategy": "greedy_alt",
+        "stabilizer_parallel": false,
+        "gate_selection": "min_id",
+        "memory_reorder": false,
+        "measure_batch_size": 1,
+        "interleave": false,
+        "eviction_strategy": "balanced"
+      }
+    }
+  ],
+  "split_even (archive)": [
+    {
+      "d": 3,
+      "par_time_ms": 30.013888888888893,
+      "seq_time_ms": 35.491444444444454,
+      "compile_config": {}
+    },
+    {
+      "d": 5,
+      "par_time_ms": 161.8046666666666,
+      "seq_time_ms": 183.35711111111104,
+      "compile_config": {}
+    },
+    {
+      "d": 7,
+      "par_time_ms": 540.6765555555553,
+      "seq_time_ms": 584.9981111111103,
+      "compile_config": {}
+    },
+    {
+      "d": 9,
+      "par_time_ms": 1406.2451111111097,
+      "seq_time_ms": 1473.663888888889,
+      "compile_config": {}
+    }
+  ]
+}

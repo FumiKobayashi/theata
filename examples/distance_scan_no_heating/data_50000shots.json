@@ -1,0 +1,82 @@
+{
+  "rounds": 3,
+  "shots_per_d": 50000,
+  "seed": 42,
+  "transport_mode": "lumped",
+  "heating_mode": "off (n_bar=0.01 forced)",
+  "override_n_bar": 0.01,
+  "results": [
+    {
+      "d": 3,
+      "forward": "snake_reuse1",
+      "reverse": "snake_reuse1_reverse",
+      "observable": [
+        0,
+        1,
+        2
+      ],
+      "errors": 133,
+      "shots": 50000,
+      "p_L": 0.00266,
+      "stderr_1sigma": 0.0002303442814571267,
+      "per_round_p_L": 0.000887454008304811
+    },
+    {
+      "d": 5,
+      "forward": "d5_reuse1",
+      "reverse": "d5_reuse1_reverse_cnot",
+      "observable": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "errors": 25,
+      "shots": 50000,
+      "p_L": 0.0005,
+      "stderr_1sigma": 9.997499687421851e-05,
+      "per_round_p_L": 0.0001666944521629965
+    },
+    {
+      "d": 7,
+      "forward": "d7_reuse1",
+      "reverse": "d7_reuse1_reverse_cnot",
+      "observable": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "errors": 8,
+      "shots": 50000,
+      "p_L": 0.00016,
+      "stderr_1sigma": 5.6564016830490393e-05,
+      "per_round_p_L": 5.33361780306052e-05
+    },
+    {
+      "d": 9,
+      "forward": "d9_reuse1",
+      "reverse": "d9_reuse1_reverse_cnot",
+      "observable": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "errors": 1,
+      "shots": 50000,
+      "p_L": 2e-05,
+      "stderr_1sigma": 1.999979999899999e-05,
+      "per_round_p_L": 6.666711111602552e-06
+    }
+  ]
+}

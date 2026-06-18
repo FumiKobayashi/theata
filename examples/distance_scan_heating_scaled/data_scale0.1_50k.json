@@ -1,0 +1,62 @@
+{
+  "rounds": 3,
+  "shots_per_d": 50000,
+  "seed": 42,
+  "transport_mode": "lumped",
+  "heating_mode": "scaled (0.1x transversal phonon)",
+  "override_n_bar": null,
+  "phonon_scale": 0.1,
+  "results": [
+    {
+      "d": 3,
+      "forward": "snake_reuse1",
+      "reverse": "snake_reuse1_reverse",
+      "observable": [
+        0,
+        1,
+        2
+      ],
+      "errors": 225,
+      "shots": 50000,
+      "p_L": 0.0045,
+      "stderr_1sigma": 0.0002993242389115856,
+      "per_round_p_L": 0.0015022556419308497
+    },
+    {
+      "d": 5,
+      "forward": "d5_reuse1",
+      "reverse": "d5_reuse1_reverse_cnot",
+      "observable": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "errors": 108,
+      "shots": 50000,
+      "p_L": 0.00216,
+      "stderr_1sigma": 0.00020762150177667052,
+      "per_round_p_L": 0.0007205190229772063
+    },
+    {
+      "d": 7,
+      "forward": "d7_reuse1",
+      "reverse": "d7_reuse1_reverse_cnot",
+      "observable": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "errors": 392,
+      "shots": 50000,
+      "p_L": 0.00784,
+      "stderr_1sigma": 0.00039442450228148864,
+      "per_round_p_L": 0.0026201927471328768
+    }
+  ]
+}

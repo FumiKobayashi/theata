@@ -127,6 +127,8 @@ def phonon_to_pauli_lookup_rates(
     phonon_at_gates: list,
     lookup,  # PauliErrorLookup instance
     mode: str = "strict",
+    override_n_bar: float = None,
+    phonon_scale: float = 1.0,
 ) -> list:
     """各 MS ゲートのフォノン数 (transversal) を n_bar として lookup table を引き、
     15 個の Pauli 確率 (PAULI_CHANNEL_2 入力) を返す。
@@ -135,20 +137,34 @@ def phonon_to_pauli_lookup_rates(
         phonon_at_gates: compile_result.phonon_data['at_gates'] と同形式の list
         lookup: PauliErrorLookup インスタンス
         mode: 'strict' (ceil) / 'optimistic' (floor) / 'round_off' (nearest)
+        override_n_bar: None なら通常通り phonon を見る。 数値 (例: 0.01) を渡すと
+            **全 MS でこの n_bar を使う** (= heating 寄与 0 のシナリオ)。
+        phonon_scale: 全 op 一律で transversal phonon に掛ける倍率。 1.0 = scale なし
+            (現状)、 0.5 = ハードウェアで heating を半分に抑えた仮想シナリオ、 等。
+            **すべての phonon 蓄積が加算的なため、 「compiler レベルで全 op の
+            phonon 増分 rate を α 倍する」 と「最終 phonon を α 倍する」 は
+            数学的に等価**。 後者の方が安価に試せるのでこちらで実装。
+            (per-op-type の不等倍率は post-hoc では出来ないが、 当面は全op一律で十分)。
+            override_n_bar が指定されたらこちらの方が優先される。
 
-    n_bar の取り方: その MS 関与する 2 qubit の transversal phonon の max を採用する。
-    (両 qubit に同じチャネルを適用するので、悲観側に揃える方が物理的)
+    n_bar の取り方 (override_n_bar=None のとき):
+        その MS 関与する 2 qubit の transversal phonon の max × phonon_scale。
 
     Returns:
         [(gate_name, pauli_probs_15, n_bar_used, max_axial, max_transversal), ...]
+        ※ 最後の max_axial/transversal は **scale 前の生値** (記録用)
     """
     rates = []
     for gate_info in phonon_at_gates:
         phonons = gate_info['phonons']
         max_ax = max(p[0] for p in phonons.values())
         max_tr = max(p[1] for p in phonons.values())
-        n_bar_used = lookup.select_n_bar(max_tr, mode=mode)
-        pauli_probs = lookup.lookup(max_tr, mode=mode)
+        # phonon_scale を transversal にかける (heating 倍率制御)
+        max_tr_scaled = max_tr * phonon_scale
+        # override が指定されていればそちら優先、 そうでなければ scaled を使う
+        n_input = override_n_bar if override_n_bar is not None else max_tr_scaled
+        n_bar_used = lookup.select_n_bar(n_input, mode=mode)
+        pauli_probs = lookup.lookup(n_input, mode=mode)
         rates.append((gate_info['gate'], pauli_probs, n_bar_used, max_ax, max_tr))
     return rates
 

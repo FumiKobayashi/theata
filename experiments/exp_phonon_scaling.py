@@ -128,17 +128,13 @@ def collect_phonon_data() -> list:
 # Plot
 # ==========================================
 
-def plot_phonon(data: list, out_png: Path) -> None:
+def _draw_phonon_axes(ax, data: list, simple_title: bool = False) -> None:
     ds = [r['d'] for r in data]
     trs = [r['max_transversal'] for r in data]
-
-    fig, ax = plt.subplots(figsize=(6.5, 4.5))
     ax.plot(ds, trs, 'o-', markersize=10, linewidth=2, color='C0',
             label='Max transversal phonon')
-    # lookup table 上限のリファレンスライン
     ax.axhline(20.0, color='red', linestyle='--', alpha=0.5,
                label='Lookup table max (n_bar=20)')
-    # データラベル
     for r in data:
         ax.annotate(f'{r["max_transversal"]:.2f}',
                     (r['d'], r['max_transversal']),
@@ -146,11 +142,28 @@ def plot_phonon(data: list, out_png: Path) -> None:
                     fontsize=10)
     ax.set_xlabel('Code distance $d$')
     ax.set_ylabel(r'Max transversal phonon $\bar{n}_\perp$ (per round)')
-    ax.set_title('Max transversal phonon vs code distance\n'
-                 '(rotated surface code, snake_reuse1, single LIZ)')
+    if simple_title:
+        ax.set_title('Max transversal phonon vs code distance')
+    else:
+        ax.set_title('Max transversal phonon vs code distance\n'
+                     '(rotated surface code, snake_reuse1, single LIZ)')
     ax.set_xticks(ds)
     ax.grid(alpha=0.3)
     ax.legend()
+
+
+def plot_phonon(data: list, out_png: Path) -> None:
+    fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    _draw_phonon_axes(ax, data, simple_title=False)
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    print(f"  saved plot: {out_png.relative_to(REPO)}")
+    plt.close(fig)
+
+
+def plot_phonon_simple(data: list, out_png: Path) -> None:
+    fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    _draw_phonon_axes(ax, data, simple_title=True)
     fig.tight_layout()
     fig.savefig(out_png, dpi=150)
     print(f"  saved plot: {out_png.relative_to(REPO)}")
@@ -225,6 +238,7 @@ def main():
     print(f"\n  saved data: {(outdir / 'data.json').relative_to(REPO)}")
 
     plot_phonon(data, outdir / 'plot.png')
+    plot_phonon_simple(data, outdir / 'plot_simple.png')
     write_readme(data, outdir)
     print(f"\nDone. Output: {outdir.relative_to(REPO)}")
     return 0
