@@ -1,0 +1,22 @@
+# BB (bivariate bicycle) コード用の追加依存。 qldpc は numpy>=2.2 / stim の
+# dev-build を要求し、 requirements.txt とも requirements-ldpc.txt (HGP 用)
+# とも衝突するため、 別の隔離 venv (Python 3.10+ 必須) を使う:
+#
+#   /opt/homebrew/bin/python3.10 -m venv venv_bb
+#   ./venv_bb/bin/pip install -r requirements-bb.txt
+#
+# 使うのは experiments/generate_bb_circuits.py だけ。 生成済み
+# circuits/bb_*.py 自体は literal のみで qldpc/numpy2 に依存しないため、
+# notebooks/ler_evaluation.ipynb の BB セクションは通常の kernel
+# (requirements.txt の環境) でそのまま動く — venv_bb の kernel に
+# 切り替える必要はない。
+
+qldpc==0.2.9
+ldpc==2.4.1
+numpy==2.2.6
+scipy==1.15.3
+stim==1.17.dev1780910265
+pymatching==2.4.0
+sympy==1.14.0
+galois==0.4.11
+networkx==3.4.2
