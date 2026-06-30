@@ -1,0 +1,24 @@
+# HGP コード用の追加依存。 ldpc パッケージは numpy>=1.24 を要求し、 メイン
+# requirements.txt の numpy 1.22.4 系 (Homebrew python3.9 環境) とは衝突
+# するため、 隔離した venv で使う:
+#
+#   python3 -m venv venv
+#   ./venv/bin/pip install -r requirements.txt -r requirements-ldpc.txt
+#
+# 使うのは experiments/generate_hgp_circuits.py だけ。 生成済み
+# circuits/hgp_*.py 自体は literal のみで ldpc/numpy2 に依存しないため、
+# notebooks/ler_evaluation.ipynb の HGP セクションは通常の kernel
+# (requirements.txt の環境、 本プロジェクトでは anaconda3) でそのまま動く
+# — venv の kernel に切り替える必要はない。 anaconda3 (numpy 1.24.3) には
+# ldpc を直接 pip install 済み (requirements.txt 参照) なので、 BP+OSD
+# decoder もメイン環境で動く。
+#
+# BB コード用は別の venv_bb/ + requirements-bb.txt を使うこと
+# (qldpc は numpy>=2.2 / stim dev-build / Python>=3.10 を要求し、 ここの
+# ldpc==2.3.9 / numpy==2.0.2 とも衝突する)。
+
+ldpc==2.3.9
+numpy==2.0.2
+scipy==1.13.1
+stim==1.11.0
+pymatching==2.1.0

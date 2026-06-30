@@ -1,0 +1,10 @@
+numpy
+matplotlib
+stim
+pymatching
+lark
+ipython
+ldpc  # HGP/BB code construction (GF(2) linear algebra) + BP+OSD decoder for non-graphlike codes
+
+# optional: PNG export of SVG circuit diagrams (experiments/exp_build_examples.py)
+cairosvg
