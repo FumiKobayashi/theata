@@ -1111,11 +1111,47 @@ class MovementPlanner:
         # 各中間目標に対して1ホップずつ移動する
         waypoints = [z for z in path if not self.architecture.is_temp(z)]
 
+        # multi-LIZ 安全条件: 占有中の LIZ を「通過」してはならない。
+        # 中間 waypoint (src でも最終 dst でもない) が LIZ かつ非空なら、
+        # その LIZ のゲート作業集合を踏み潰す不正搬送 → エラーで弾く。
+        self._check_no_occupied_liz_passthrough(
+            ion_id, waypoints, src_zone, dst_zone, state)
+
         ops = []
         for i in range(1, len(waypoints)):
             ops.extend(self._move_ion_one_hop(ion_id, waypoints[i], state))
 
         return ops
+
+    def _check_no_occupied_liz_passthrough(
+        self, ion_id: int, waypoints: List[int], src_zone: int,
+        dst_zone: int, state: QCCDState
+    ) -> None:
+        """搬送経路が「占有中の LIZ」を通過しないことを保証する。
+
+        中間 waypoint (waypoints[1:-1]) のうち、LIZ かつ非空のものがあれば
+        pass-through 違反としてエラーを送出する。空 LIZ の通過は許容
+        (物理的に容量内・ゲート作業を妨げない)。
+
+        診断: 違反は 2 系統の原因に分かれる ([[project_per_liz_stream_design]]):
+        - cross-LIZ data が非隣接 LIZ を訪問する構造 (partition の不変条件破れ)
+          → 本質的に transit protocol が要る (現状は非対応 = エラーが正しい)
+        - eviction で遠い Memory へ飛ばされた動的配置ミス
+          → placement / 退避方向の修正で解消できる
+        """
+        for w in waypoints[1:-1]:
+            if self.architecture.is_liz(w) and state.zone_contents.get(w):
+                occupants = list(state.zone_contents[w])
+                raise RuntimeError(
+                    f"Pass-through of OCCUPIED LIZ {w} while transporting ion "
+                    f"{ion_id} from zone {src_zone} to zone {dst_zone} "
+                    f"(waypoints={waypoints}). LIZ {w} currently holds "
+                    f"{occupants}. Multi-LIZ routing must not transit an occupied "
+                    f"LIZ. Cause is either (a) a non-adjacent LIZ visit required by "
+                    f"the partition (fundamental: needs a transit protocol, not yet "
+                    f"supported), or (b) the ion was evicted to a far Memory "
+                    f"(fix initial placement / eviction direction)."
+                )
 
     def _move_ion_one_hop(
         self, ion_id: int, dst_zone: int, state: QCCDState
