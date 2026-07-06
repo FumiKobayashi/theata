@@ -256,6 +256,9 @@ class QCCDState:
     phonon_params: Optional[dict] = None  # フォノンパラメータ（Noneで無効化）
     # MSゲート実行時のフォノン記録
     phonon_at_gates: List[dict] = field(default_factory=list)
+    # 退避先の home 指定 (per-LIZ stream compile 用): ion_id -> home zone_id。
+    # None なら従来動作（最寄り Memory への BFS）。
+    home_map: Optional[Dict[int, int]] = None
 
     def __post_init__(self):
         for zone in self.architecture.zones:
@@ -346,7 +349,12 @@ class QCCDState:
         return zone.capacity - len(self.zone_contents[zone_id])
 
     def find_eviction_destination(self, from_zone_id: int, ion_id: int = None) -> Optional[int]:
-        """空きのある最寄りのMemoryゾーンを探す（方向指定可能）"""
+        """空きのある最寄りのMemoryゾーンを探す（home_map があれば home 優先）"""
+        if ion_id is not None and self.home_map:
+            home = self.home_map.get(ion_id)
+            if (home is not None and home != from_zone_id
+                    and self.get_zone_free_space(home) > 0):
+                return home
         return self._find_memory_in_direction(from_zone_id, prefer_left=True)
 
     def _find_memory_in_direction(self, from_zone_id: int, prefer_left: bool = True) -> Optional[int]:
@@ -389,6 +397,37 @@ class QCCDState:
 
         contents = list(self.zone_contents.get(zone_id, []))
         evict_set = set(ions_to_evict)
+
+        if self.home_map:
+            # home 優先モード (per-LIZ stream compile 用):
+            # 両端から内側の順で退避し、各イオンは home に空きがあれば home へ、
+            # なければ位置に近い側の Memory へ。core 外の Memory にイオンが
+            # 流出して pass-through や cross-core 競合を生むのを防ぐ。
+            in_pos = [ion for ion in contents if ion in evict_set]
+            order = []
+            lo, hi = 0, len(in_pos) - 1
+            take_left = True
+            while lo <= hi:
+                if take_left:
+                    order.append(in_pos[lo]); lo += 1
+                else:
+                    order.append(in_pos[hi]); hi -= 1
+                take_left = not take_left
+            reserved: Dict[int, int] = {}
+            plan = []
+            for ion in order:
+                home = self.home_map.get(ion)
+                dst = None
+                if home is not None and home != zone_id:
+                    if self.get_zone_free_space(home) - reserved.get(home, 0) > 0:
+                        dst = home
+                if dst is None:
+                    prefer_left = contents.index(ion) < len(contents) / 2
+                    dst = self._find_memory_in_direction(zone_id, prefer_left=prefer_left)
+                if dst is not None:
+                    plan.append((ion, dst))
+                    reserved[dst] = reserved.get(dst, 0) + 1
+            return plan
 
         # protectedイオンの位置を特定
         protected_positions = [i for i, ion in enumerate(contents) if ion in protected]
@@ -702,28 +741,32 @@ class MovementPlanner:
                     ops.extend(self._move_ion_to_zone(ion, evict_dst, state))
         return ops
 
-    def plan(self, dag: DAG, initial_placement: Dict[int, int]) -> List[Operation]:
+    def plan(self, dag: DAG, initial_placement: Dict[int, int] = None,
+             state: QCCDState = None) -> List[Operation]:
         """
         メインエントリーポイント: DAG → 平坦なAtomicOp列
 
         Args:
             dag: 依存関係グラフ（事前にreset_execution済み想定）
-            initial_placement: ion_id -> zone_id
+            initial_placement: ion_id -> zone_id（state 指定時は不要）
+            state: 既存の QCCDState を引き継いで plan する（per-LIZ stream 用。
+                複数の sub-DAG を同一状態上で順に plan するときに使う）
 
         Returns:
             List[Operation]: Split/Swap/Merge/Gate の平坦な列（ゾーンアノテーション付き）
         """
-        state = QCCDState(architecture=self.architecture)
-        # フォノン追跡を有効化（デフォルトパラメータ）
-        state.phonon_params = {
-            'split_axial': 10.0, 'split_transversal': 0.05,
-            'merge_axial': 10.0, 'merge_transversal': 0.05,
-            'swap_axial': 0.1, 'swap_transversal': 0.1,
-            'shuttle_axial_per_180um': 0.5, 'shuttle_transversal': 0.05,
-            'shuttle_base_distance': 1000.0, 'shuttle_ion_factor': 5.0,
-        }
-        for ion_id, zone_id in initial_placement.items():
-            state.place_ion_any(ion_id, zone_id)
+        if state is None:
+            state = QCCDState(architecture=self.architecture)
+            # フォノン追跡を有効化（デフォルトパラメータ）
+            state.phonon_params = {
+                'split_axial': 10.0, 'split_transversal': 0.05,
+                'merge_axial': 10.0, 'merge_transversal': 0.05,
+                'swap_axial': 0.1, 'swap_transversal': 0.1,
+                'shuttle_axial_per_180um': 0.5, 'shuttle_transversal': 0.05,
+                'shuttle_base_distance': 1000.0, 'shuttle_ion_factor': 5.0,
+            }
+            for ion_id, zone_id in initial_placement.items():
+                state.place_ion_any(ion_id, zone_id)
 
         dag.reset_execution()
         ops: List[Operation] = []
