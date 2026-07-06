@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from ast_def import (
     Program, Operation, GateOp, ResetOp, MeasureOp,
     ShuttleOp, SwapOp, SplitOp, MergeOp, BarrierOp,
+    QubitDecl, Location,
 )
 
 
@@ -145,12 +146,6 @@ def partition_spatial_row(
     row average. Within each band, the stabilizer is reassigned to the
     band-corresponding ancilla (and therefore the corresponding LIZ).
     """
-    if len(ancilla_qubits) < len(liz_zone_ids):
-        raise ValueError(
-            f"need at least {len(liz_zone_ids)} ancillae for {len(liz_zone_ids)} LIZs, "
-            f"got {len(ancilla_qubits)}"
-        )
-
     # Build row lookup from declarations: location.trap == row in our convention
     qubit_row: Dict[int, float] = {}
     for decl in program.declarations:
@@ -159,11 +154,29 @@ def partition_spatial_row(
     ancilla_set = set(ancilla_qubits)
     stabilizers = _identify_stabilizers(program, ancilla_set)
 
-    # Pick one ancilla per LIZ (use input order; remaining ancillae are unused
-    # — caller can prune them or we just rewrite all stabs to use these).
-    liz_ancilla = {
-        liz_zone_ids[i]: ancilla_qubits[i] for i in range(len(liz_zone_ids))
-    }
+    # Assign one reusable ancilla per LIZ. The number of ancillae is a compile
+    # choice (= number of LIZs), not a circuit property, so if the circuit
+    # declares fewer ancillae than LIZs we allocate fresh ancilla qubit IDs.
+    # Ancillae are reset/reused and fungible; the per-stabilizer rewrite below
+    # remaps each band's RESET/MS/MEASURE to its LIZ ancilla, so allocating a
+    # fresh ID needs only a QUBIT declaration (no extra ops).
+    existing_ids = {decl.id for decl in program.declarations}
+    next_id = (max(existing_ids) + 1) if existing_ids else 0
+    park_trap = max((decl.location.trap for decl in program.declarations),
+                    default=0) + 1
+    extra_decls: List[QubitDecl] = []
+    liz_ancilla: Dict[int, int] = {}
+    for i, liz in enumerate(liz_zone_ids):
+        if i < len(ancilla_qubits):
+            liz_ancilla[liz] = ancilla_qubits[i]
+        else:
+            aid = next_id
+            next_id += 1
+            liz_ancilla[liz] = aid
+            extra_decls.append(
+                QubitDecl(id=aid, location=Location(trap=park_trap,
+                                                    site=len(extra_decls)))
+            )
 
     # Classify each stabilizer
     stab_to_liz: Dict[int, int] = {}
@@ -231,7 +244,7 @@ def partition_spatial_row(
                 )
 
     new_program = Program(
-        declarations=list(program.declarations),
+        declarations=list(program.declarations) + extra_decls,
         instructions=new_instructions,
     )
 
@@ -250,27 +263,27 @@ def compute_initial_placement_3tier(
     architecture,
     all_data_qubits: List[int],
 ) -> Dict[int, int]:
-    """Compute a 3-tier initial placement for 2-LIZ architecture.
+    """Compute an N-LIZ initial placement (T-M-T-(L-T-M-T)* chain).
 
-    Pure-A data → memory zone left of LIZ-A
-    Pure-B data → memory zone right of LIZ-B
-    Shared data → memory zone between the two LIZs
-    Each ancilla → memory zone immediately left of its LIZ
+    Pure-i data   → memory zone immediately left of LIZ-i
+                    (rightmost LIZ's pure data → memory right of it)
+    Shared data   → memory zone BETWEEN the specific adjacent LIZ pair that
+                    shares it (from data_to_liz_set), so it is one hop from
+                    both and never needs to transit an occupied LIZ
+    Each ancilla  → memory zone immediately left of its LIZ
 
-    Generalization to >2 LIZs: each pure-i data goes to the memory zone
-    immediately left of LIZ-i; shared data goes to the central-most memory.
+    For the chain zones [T,M,T,L,T,M,T,L,...,T,M,T], memory_zones[i] is left
+    of liz_zones[i], and memory_zones[i+1] sits between liz_zones[i] and
+    liz_zones[i+1] (their shared memory).
     """
     memory_zones = [z.id for z in architecture.zones if z.zone_type == "M"]
     liz_zones = [z.id for z in architecture.zones if z.zone_type == "L"]
     num_liz = len(liz_zones)
 
     # Map each LIZ to the memory zone immediately to its left
-    # For T-M-T-L-T-M-T-L-...-T-M-T, left-of-LIZ_i is memory_zones[i]
     liz_left_memory = {liz_zones[i]: memory_zones[i] for i in range(num_liz)}
-    # Right-most memory (only relevant for the right boundary)
+    liz_index = {liz_zones[i]: i for i in range(num_liz)}
     rightmost_memory = memory_zones[-1]
-    # Central memory: between the two LIZs (for 2-LIZ case)
-    central_memory = memory_zones[num_liz - 1] if num_liz >= 2 else memory_zones[0]
 
     placement: Dict[int, int] = {}
 
@@ -282,16 +295,27 @@ def compute_initial_placement_3tier(
     for d in all_data_qubits:
         if d in result.pure_data:
             liz_id = result.pure_data[d]
-            # Pure data goes to the LIZ's left memory (or right memory for the rightmost LIZ)
             if liz_id == liz_zones[-1]:
-                # rightmost LIZ: pure data goes right of LIZ
                 placement[d] = rightmost_memory
             else:
                 placement[d] = liz_left_memory[liz_id]
         elif d in result.shared_data:
-            placement[d] = central_memory
+            # Place in the memory between the specific LIZ pair sharing it.
+            visited = sorted(liz_index[l] for l in result.data_to_liz_set[d])
+            lo, hi = visited[0], visited[-1]
+            if hi == lo + 1:
+                # adjacent pair -> shared memory sits at memory_zones[hi]
+                placement[d] = memory_zones[hi]
+            else:
+                # non-adjacent / >2-LIZ span: no single memory is adjacent to
+                # all visited LIZs -> pass-through is unavoidable with static
+                # placement. Park mid-span (best effort); the compiler's
+                # pass-through guard will flag it if transport crosses an
+                # occupied LIZ. (Does not occur for rotated surface-code
+                # row-band partitions, where sharing is between adjacent bands.)
+                placement[d] = memory_zones[(lo + hi + 1) // 2]
         else:
-            # Data qubit not touched by any stabilizer (shouldn't happen for full circuit)
+            # Data qubit not touched by any stabilizer (shouldn't happen)
             placement[d] = memory_zones[0]
 
     return placement
