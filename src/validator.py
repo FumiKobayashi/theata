@@ -24,7 +24,7 @@ from typing import List, Dict, Set, Optional
 
 from ast_def import (
     Operation, GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp,
-    TimeStep
+    CoolOp, TimeStep
 )
 from qccd_compiler import QCCDArchitecture
 
@@ -282,6 +282,10 @@ class Validator:
             self._validate_gate(step, op, state, err)
             # Gate/Measure/Reset は状態を変えない（イオン位置は不変）
 
+        elif type_name == "CoolOp":
+            self._validate_cool(step, op, state, err)
+            # Cool は状態を変えない（イオン位置は不変、フォノンのみ）
+
         else:
             err("unknown_operation", f"Unknown operation type: {type_name}")
             return
@@ -484,6 +488,27 @@ class Validator:
                 err("gate_different_liz",
                     f"Gate targets in different zones: {dict(zip(targets, zones))}")
 
+    def _validate_cool(self, step, op, state: _ValidatorState, err):
+        """CoolOp の事前検証: ゾーンの存在 + coolant の所在"""
+        zone = self.architecture.get_zone(op.zone_id)
+        if zone is None:
+            err("cool_zone_not_found",
+                f"Cool target zone {op.zone_id} does not exist")
+            return
+        # Temp zone は操作前後で空という不変条件があるため冷却対象にできない
+        if zone.zone_type == "T":
+            err("cool_in_temp",
+                f"Cool cannot target Temporary zone {op.zone_id}")
+        if op.coolant_id >= 0:
+            coolant_zone = state.locate(op.coolant_id)
+            if coolant_zone is None:
+                err("cool_coolant_not_found",
+                    f"Coolant ion {op.coolant_id} not found in any zone")
+            elif coolant_zone != op.zone_id:
+                err("cool_coolant_not_in_zone",
+                    f"Coolant ion {op.coolant_id} is in zone {coolant_zone}, "
+                    f"expected zone {op.zone_id}")
+
 
 # ==========================================
 # 並列 Validator
@@ -524,6 +549,8 @@ class ParallelValidator:
             return {op.zone_id} if hasattr(op, 'zone_id') and op.zone_id != -1 else set()
         if isinstance(op, (GateOp, MeasureOp, ResetOp)):
             return set()  # ゲートはLIZ上で実行、ゾーンはlocateで取得
+        if isinstance(op, CoolOp):
+            return {op.zone_id} if op.zone_id != -1 else set()
         return set()
 
     def _ions_used(self, op: Operation) -> Set[int]:
@@ -536,6 +563,8 @@ class ParallelValidator:
             return set(op.targets)
         if isinstance(op, MergeOp):
             return set()  # Mergeはzone操作、特定ionを指定しない
+        if isinstance(op, CoolOp):
+            return {op.coolant_id} if op.coolant_id >= 0 else set()
         return set()
 
     def validate(

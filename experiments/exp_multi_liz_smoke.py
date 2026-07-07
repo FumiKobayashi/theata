@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'circuits'))
 from qccd_parser import parse
 from dag_builder import DAGBuilder
 from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
-from stabilizer_partitioner import StabilizerPartitioner
+from stabilizer_partitioner import StabilizerPartitioner, StabilizerPartition
 from spatial_partitioner import partition_spatial_row, compute_initial_placement_3tier
 from parallel_estimator import ParallelEstimator, save_parallel_txt
 from validator import validate_operations, validate_timesteps
@@ -133,8 +133,14 @@ def main():
     print(f"  DAG nodes: {len(dag.nodes)}")
 
     # 3. Partition
-    partitioner = StabilizerPartitioner(strategy="ancilla_locked")
-    partition = partitioner.partition(mod.ANCILLA_QUBITS, liz_ids)
+    if spatial_result is not None:
+        # Build from the spatial result so it includes ancillae allocated for
+        # LIZs beyond the circuit's ancilla count (N-LIZ).
+        partition = StabilizerPartition(ancilla_to_liz={
+            a: liz for liz, a in spatial_result.ancilla_assignments.items()})
+    else:
+        partitioner = StabilizerPartitioner(strategy="ancilla_locked")
+        partition = partitioner.partition(mod.ANCILLA_QUBITS, liz_ids)
     print(f"\nPartition (ancilla -> LIZ): {partition.ancilla_to_liz}")
 
     # 4. Initial placement

@@ -142,6 +142,20 @@ class ResetOp(Operation):
 
 
 @dataclass
+class CoolOp(Operation):
+    """冷却操作: zone_id 内のイオンチェーン全体を残留フォノン数まで冷やす
+
+    Cool(trap_zone_id, coolant_id) 形式。coolant_id は sympathetic cooling
+    用の補助イオン。-1 は「coolant をモデル化しない」暫定モード
+    （詳細仕様の確定までのデフォルト）。coolant_id >= 0 の場合、
+    実行時に coolant が zone_id に居ることを要求する。
+    """
+    zone_id: int
+    coolant_id: int = -1
+    type: str = "COOL"
+
+
+@dataclass
 class TimeStep:
     """並列実行可能な操作の集合（Schedulerが生成）"""
     ops: List[Operation]
