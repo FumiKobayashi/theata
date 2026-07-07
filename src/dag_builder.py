@@ -19,7 +19,7 @@ from typing import List, Dict, Set, Optional
 from ast_def import (
     Program, Operation, QubitDecl, Location,
     GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp,
-    MeasureOp, ResetOp, BarrierOp
+    MeasureOp, ResetOp, BarrierOp, CoolOp
 )
 
 
@@ -245,6 +245,10 @@ class DAGBuilder:
         # 除外された操作を保存（後段で使用可能）
         self.excluded_movements: List[Operation] = []
         self.measurements: List[MeasureOp] = []
+
+        # 直近の COOL バリアノード（COOL 以降に始まる新規イオン/スタビライザの
+        # 操作が COOL より前に浮き上がらないようにするフォールバック依存先）
+        self._cool_barrier_node: Optional[int] = None
     
     def _get_ancilla_from_reset(self, op: ResetOp) -> Optional[int]:
         """RESETからアンシラIDを取得（単一ターゲット前提）"""
@@ -285,6 +289,8 @@ class DAGBuilder:
             return op.targets
         elif isinstance(op, BarrierOp):
             return op.targets
+        elif isinstance(op, CoolOp):
+            return [op.coolant_id] if op.coolant_id >= 0 else []
         else:
             return []
     
@@ -311,7 +317,33 @@ class DAGBuilder:
             
             node = self._create_node(op)
             self.dag.add_node(node)
-            
+
+            # COOL: ゾーン単位の操作で、対象イオン集合が実行時まで確定しない。
+            # 保守的に「これまでの全イオンの最後の操作」に依存するバリアとして
+            # 扱い、以降の操作は全てこのノードの後に来るようにする。
+            if isinstance(op, CoolOp):
+                preds: Set[int] = set()
+                if self.stabilizer_parallel:
+                    for last_ops in self.last_op_per_stabilizer.values():
+                        preds.update(last_ops.values())
+                    preds.update(self.last_measure_per_ancilla.values())
+                    # 以降の操作の依存先を COOL に付け替える
+                    for last_ops in self.last_op_per_stabilizer.values():
+                        for ion_id in last_ops:
+                            last_ops[ion_id] = node.id
+                    for anc in self.last_measure_per_ancilla:
+                        self.last_measure_per_ancilla[anc] = node.id
+                else:
+                    preds = set(self.last_op_for_ion.values())
+                    for ion_id in self.last_op_for_ion:
+                        self.last_op_for_ion[ion_id] = node.id
+                if not preds and self._cool_barrier_node is not None:
+                    preds.add(self._cool_barrier_node)
+                for pred_id in preds:
+                    self.dag.add_edge(pred_id, node.id)
+                self._cool_barrier_node = node.id
+                continue
+
             # データ依存関係を設定
             affected_ions = self._get_affected_ions(op)
             predecessor_ids = set()
@@ -385,10 +417,14 @@ class DAGBuilder:
                 for ion_id in affected_ions:
                     self.last_op_for_ion[ion_id] = node.id
             
+            # COOL バリア以降に初登場するイオンの操作は COOL の後に置く
+            if not predecessor_ids and self._cool_barrier_node is not None:
+                predecessor_ids.add(self._cool_barrier_node)
+
             # エッジを追加
             for pred_id in predecessor_ids:
                 self.dag.add_edge(pred_id, node.id)
-        
+
         self.dag.compute_entry_exit()
         return self.dag
 

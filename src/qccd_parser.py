@@ -2,7 +2,7 @@ from lark import Lark, Transformer
 from ast_def import (
     Location, QubitDecl, Operation,
     GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp,
-    MeasureOp, ResetOp, BarrierOp, Program
+    MeasureOp, ResetOp, BarrierOp, CoolOp, Program
 )
 
 # ==========================================
@@ -16,7 +16,7 @@ qccd_grammar = """
     declaration: "QUBIT" ion_id "AT" location
 
     // --- 命令部 ---
-    instruction: gate_op | movement_op | measure_op | reset_op | barrier_op | comment
+    instruction: gate_op | movement_op | measure_op | reset_op | barrier_op | cool_op | comment
 
     // 基本型
     ion_id:    INT
@@ -51,6 +51,9 @@ qccd_grammar = """
     measure_op:  "MEASURE" ion_id+
     reset_op:    "RESET"   ion_id+
     barrier_op:  "BARRIER" ion_id+
+
+    // COOL: zone_id 内のチェーン全体を冷却。coolant の ion_id は省略可
+    cool_op:     "COOL" zone_id ion_id?
     
     comment: /#.*/
 
@@ -133,6 +136,11 @@ class QCCDASTTransformer(Transformer):
     
     def barrier_op(self, items):
         return BarrierOp(targets=list(items))
+
+    def cool_op(self, items):
+        # COOL zone_id [coolant_ion_id]
+        coolant = items[1] if len(items) > 1 else -1
+        return CoolOp(zone_id=items[0], coolant_id=coolant)
 
     # --- パススルー ---
     def gate_op(self, items):

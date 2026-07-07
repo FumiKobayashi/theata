@@ -22,7 +22,7 @@ from typing import List, Optional, Dict
 
 from ast_def import (
     Operation, GateOp, ResetOp, MeasureOp,
-    ShuttleOp, SwapOp, SplitOp, MergeOp, BarrierOp, TimeStep,
+    ShuttleOp, SwapOp, SplitOp, MergeOp, BarrierOp, CoolOp, TimeStep,
 )
 
 
@@ -56,6 +56,9 @@ def format_op_summary(op: Operation) -> str:
     if isinstance(op, BarrierOp):
         ions = ",".join(str(t) for t in op.targets)
         return f"Barrier({ions})"
+    if isinstance(op, CoolOp):
+        coolant = f" coolant={op.coolant_id}" if op.coolant_id >= 0 else ""
+        return f"Cool z{op.zone_id}{coolant}"
     return str(op)
 
 
@@ -125,6 +128,8 @@ def _op_type_key(op: Operation) -> str:
         return "Merge"
     if isinstance(op, BarrierOp):
         return "Barrier"
+    if isinstance(op, CoolOp):
+        return "Cool"
     return type(op).__name__
 
 
@@ -240,6 +245,7 @@ def build_compile_result_json(
         "merges": op_breakdown.get("Merge", 0),
         "resets": op_breakdown.get("Reset", 0),
         "measures": op_breakdown.get("Measure", 0),
+        "cools": op_breakdown.get("Cool", 0),
         "timesteps": len(compile_result.timesteps),
     }
     out["stats"] = stats

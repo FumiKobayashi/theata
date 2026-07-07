@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from ast_def import (
     Operation, TimeStep, GateOp, ShuttleOp, SwapOp,
-    SplitOp, MergeOp, MeasureOp, ResetOp, BarrierOp
+    SplitOp, MergeOp, MeasureOp, ResetOp, BarrierOp, CoolOp
 )
 from estimator import TimeParameters
 
@@ -253,6 +253,8 @@ class ParallelEstimator:
             return ("Swap", self.params.swap)
         elif isinstance(op, ShuttleOp):
             return ("Shuttle", self.params.shuttle_time(dst_chain_length=op.dst_chain_length))
+        elif isinstance(op, CoolOp):
+            return ("Cool", self.params.cool)
         elif isinstance(op, BarrierOp):
             return ("Barrier", 0.0)
         else:
@@ -278,6 +280,9 @@ class ParallelEstimator:
             return f"Swap({ions}) z{op.zone_id}"
         elif isinstance(op, ShuttleOp):
             return f"Shuttle(ion{op.target}) z{op.src_zone}->{op.dst}"
+        elif isinstance(op, CoolOp):
+            coolant = f" coolant={op.coolant_id}" if op.coolant_id >= 0 else ""
+            return f"Cool z{op.zone_id}{coolant}"
         else:
             return str(op)
 

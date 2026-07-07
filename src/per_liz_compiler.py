@@ -46,15 +46,11 @@ from spatial_partitioner import (
 )
 from validator import ParallelValidator
 from parallel_estimator import ParallelEstimator
+from sim_params import phonon_params_from
 
 
-DEFAULT_PHONON_PARAMS = {
-    'split_axial': 10.0, 'split_transversal': 0.05,
-    'merge_axial': 10.0, 'merge_transversal': 0.05,
-    'swap_axial': 0.1, 'swap_transversal': 0.1,
-    'shuttle_axial_per_180um': 0.5, 'shuttle_transversal': 0.05,
-    'shuttle_base_distance': 1000.0, 'shuttle_ion_factor': 5.0,
-}
+# 後方互換のための名前。正本は estimator.TimeParameters (sim_params 参照)。
+DEFAULT_PHONON_PARAMS = phonon_params_from()
 
 
 # ==========================================
@@ -360,7 +356,8 @@ def compile_per_liz(program: Program, ancilla_qubits: List[int],
                     code_distance: int,
                     config: Optional[CompilerConfig] = None,
                     stab_order: str = 'phase_alt',
-                    placement_mode: str = '3tier') -> PerLIZResult:
+                    placement_mode: str = '3tier',
+                    time_params=None) -> PerLIZResult:
     """回路を per-core stream にコンパイルする。
 
     stab_order:
@@ -370,6 +367,8 @@ def compile_per_liz(program: Program, ancilla_qubits: List[int],
     placement_mode:
       '3tier'      : pure→排他 M / cross→shared M (従来)
       'greedy_alt' : per-LIZ で排他 M / shared M へ使用順に交互配置
+    time_params:
+      estimator.TimeParameters (フォノンパラメータの外部注入用、None でデフォルト)
     """
     config = config or CompilerConfig(eviction_strategy="balanced")
     liz_ids = [z.id for z in arch.get_liz_zones()]
@@ -513,7 +512,7 @@ def compile_per_liz(program: Program, ancilla_qubits: List[int],
 
     ordered_placement = dict(ordered_items)
     state = QCCDState(architecture=arch)
-    state.phonon_params = dict(DEFAULT_PHONON_PARAMS)
+    state.phonon_params = phonon_params_from(time_params)
     state.home_map = dict(placement)
     for ion, z in ordered_items:
         state.place_ion_any(ion, z)

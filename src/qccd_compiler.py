@@ -19,10 +19,12 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Set, Optional, Tuple
 from ast_def import (
     Location, QubitDecl, Operation, TimeStep,
-    GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp, Program
+    GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp, CoolOp,
+    Program
 )
 from dag_builder import DAG, DAGNode
 from stabilizer_partitioner import StabilizerPartition
+from sim_params import phonon_params_from
 
 
 # ==========================================
@@ -644,6 +646,27 @@ class QCCDState:
             self.phonon_axial[ion] += axial_add
             self.phonon_transversal[ion] += tr_add
 
+    def cool_chain(self, zone_id: int):
+        """ゾーン内チェーン全体を残留フォノン数まで冷却する（CoolOp の効果）
+
+        残留値 (cool_residual_axial / cool_residual_transversal) より
+        低いイオンはそのまま（冷却でフォノンが増えることはない）。
+        """
+        if not self.phonon_params:
+            return
+        res_ax = self.phonon_params.get('cool_residual_axial', 0.0)
+        res_tr = self.phonon_params.get('cool_residual_transversal', 0.0)
+        for ion in self.zone_contents.get(zone_id, []):
+            self.phonon_axial[ion] = min(self.phonon_axial.get(ion, 0.0), res_ax)
+            self.phonon_transversal[ion] = min(
+                self.phonon_transversal.get(ion, 0.0), res_tr)
+
+    def can_execute_cool(self, op: CoolOp) -> bool:
+        """CoolOp 実行可能か: coolant 指定時はそれが対象ゾーンに居ること"""
+        if op.coolant_id < 0:
+            return True
+        return self.ion_locations.get(op.coolant_id) == op.zone_id
+
     def record_gate_phonon(self, gate_type: str, targets: List[int]):
         """ゲート実行時のフォノン数を記録"""
         if not self.phonon_params:
@@ -683,9 +706,12 @@ class MovementPlanner:
     - 出力の順序は論理的な依存関係を反映している（Schedulerはこれを並列化する）
     """
 
-    def __init__(self, architecture: QCCDArchitecture, config: "CompilerConfig" = None):
+    def __init__(self, architecture: QCCDArchitecture, config: "CompilerConfig" = None,
+                 time_params=None):
         self.architecture = architecture
         self.config = config or CompilerConfig.baseline()
+        # フォノン追跡パラメータ (外部注入可能。正本は estimator.TimeParameters)
+        self.phonon_params = phonon_params_from(time_params)
         self._reorder_optimizer = None
         if self.config.memory_reorder:
             from memory_reorder_optimizer import MemoryReorderOptimizer
@@ -757,14 +783,8 @@ class MovementPlanner:
         """
         if state is None:
             state = QCCDState(architecture=self.architecture)
-            # フォノン追跡を有効化（デフォルトパラメータ）
-            state.phonon_params = {
-                'split_axial': 10.0, 'split_transversal': 0.05,
-                'merge_axial': 10.0, 'merge_transversal': 0.05,
-                'swap_axial': 0.1, 'swap_transversal': 0.1,
-                'shuttle_axial_per_180um': 0.5, 'shuttle_transversal': 0.05,
-                'shuttle_base_distance': 1000.0, 'shuttle_ion_factor': 5.0,
-            }
+            # フォノン追跡を有効化（sim_params 経由の一元化パラメータ）
+            state.phonon_params = dict(self.phonon_params)
             for ion_id, zone_id in initial_placement.items():
                 state.place_ion_any(ion_id, zone_id)
 
@@ -966,6 +986,8 @@ class MovementPlanner:
                 return True
             if isinstance(op, (ResetOp, MeasureOp)) and state.can_execute_reset_measure(op):
                 return True
+            if isinstance(op, CoolOp) and state.can_execute_cool(op):
+                return True
             return False
 
         if not self.config.interleave:
@@ -1011,6 +1033,12 @@ class MovementPlanner:
         if isinstance(op, MeasureOp) and op.targets:
             liz_id = state.locate(op.targets[0])
             return MeasureOp(targets=op.targets, zone_id=liz_id)
+        if isinstance(op, CoolOp):
+            # zone_id は命令に明示されているため付与不要。
+            # 実行時点のチェーンにフォノン効果を適用する
+            # (record_gate_phonon と同様、状態への副作用はここで起こす)
+            state.cool_chain(op.zone_id)
+            return op
         return op
 
     # ------------------------------------------
@@ -1037,6 +1065,12 @@ class MovementPlanner:
         for node_id in sorted_ids:
             node = dag.nodes[node_id]
             op = node.operation
+
+            if isinstance(op, CoolOp):
+                # coolant が対象ゾーンに居なければ搬送する
+                if op.coolant_id >= 0 and state.locate(op.coolant_id) != op.zone_id:
+                    return self._move_ion_to_zone(op.coolant_id, op.zone_id, state)
+                continue
 
             if not isinstance(op, (GateOp, ResetOp, MeasureOp)):
                 continue
@@ -1476,7 +1510,7 @@ class Scheduler:
             if op.zone_id != -1:
                 return {op.zone_id}
             return set()
-        if isinstance(op, (GateOp, ResetOp, MeasureOp)):
+        if isinstance(op, (GateOp, ResetOp, MeasureOp, CoolOp)):
             if op.zone_id != -1:
                 return {op.zone_id}
             return set()
@@ -1521,11 +1555,19 @@ class QCCDCompiler:
         # result.operations: 平坦な操作列（後方互換）
     """
 
-    def __init__(self, architecture: QCCDArchitecture, config: CompilerConfig = None):
+    def __init__(self, architecture: QCCDArchitecture, config: CompilerConfig = None,
+                 time_params=None):
+        """
+        Args:
+            time_params: estimator.TimeParameters。フォノン追跡パラメータの
+                外部注入用 (None ならデフォルト値)。sim_params.load_time_parameters
+                でファイルから読み込んだものを渡せる。
+        """
         self.architecture = architecture
         self.config = config or CompilerConfig.baseline()
         self.config.validate()
-        self._planner = MovementPlanner(architecture, self.config)
+        self._planner = MovementPlanner(architecture, self.config,
+                                        time_params=time_params)
         self._scheduler = Scheduler()
 
     def compile(
@@ -1587,12 +1629,15 @@ class QCCDCompiler:
                              initial_placement=dict(initial_placement))
 
     def _calculate_stats(self, ops: List[Operation]) -> Dict[str, int]:
-        stats = {"gates": 0, "shuttles": 0, "swaps": 0, "splits": 0, "merges": 0}
+        stats = {"gates": 0, "shuttles": 0, "swaps": 0, "splits": 0, "merges": 0,
+                 "cools": 0}
         for op in ops:
             if isinstance(op, GateOp):
                 stats["gates"] += 1
             elif isinstance(op, (ResetOp, MeasureOp)):
                 stats["gates"] += 1
+            elif isinstance(op, CoolOp):
+                stats["cools"] += 1
             elif isinstance(op, ShuttleOp):
                 stats["shuttles"] += 1
             elif isinstance(op, SwapOp):

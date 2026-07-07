@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from ast_def import (
     Operation, GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp,
-    MeasureOp, ResetOp, BarrierOp
+    MeasureOp, ResetOp, BarrierOp, CoolOp
 )
 
 
@@ -43,6 +43,10 @@ class TimeParameters:
     shuttle_base_distance: float = 1000.0  # μm (基本距離)
     shuttle_ion_factor: float = 5.0  # μm per ion
 
+    # Cooling (sympathetic cooling): チェーン全体を残留フォノン数まで冷やす
+    # duration は placeholder — 実験系の参照値が確定したらパラメータファイルで上書きする
+    cool: float = 400.0
+
     # フォノン数変化パラメータ
     # Shuttling: axial = 0.5 per 180μm, transversal = 0.05 per op
     phonon_shuttle_axial_per_180um: float = 0.5
@@ -56,6 +60,9 @@ class TimeParameters:
     # Swap: axial = 0.1 per op, transversal = 0.1 per op
     phonon_swap_axial: float = 0.1
     phonon_swap_transversal: float = 0.1
+    # Cool: チェーン内全イオンをこの残留値まで下げる（現在値がこれ未満ならそのまま）
+    phonon_cool_residual_axial: float = 0.0
+    phonon_cool_residual_transversal: float = 0.0
     
     def shuttle_time(self, dst_chain_length: int = 0) -> float:
         """
@@ -177,10 +184,13 @@ class Estimator:
             # dst_chain_lengthを使って時間を計算
             return ("Shuttle", self.params.shuttle_time(dst_chain_length=op.dst_chain_length))
         
+        elif isinstance(op, CoolOp):
+            return ("Cool", self.params.cool)
+
         elif isinstance(op, BarrierOp):
             # バリアは同期点で、実行時間なし
             return ("Barrier", 0.0)
-        
+
         else:
             # 未知の操作
             return ("Unknown", 0.0)
