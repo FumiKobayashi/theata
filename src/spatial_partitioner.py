@@ -49,9 +49,18 @@ def _identify_stabilizers(
     program: Program,
     ancilla_qubits: Set[int],
 ) -> List[StabilizerInfo]:
-    """Walk the program and identify RESET → ... → MEASURE blocks per ancilla."""
+    """Walk the program and identify RESET → ... → MEASURE blocks per ancilla.
+
+    第 1 パス: ancilla を target に含む op を、その ancilla の開いている
+    stabilizer に帰属させる。
+    第 2 パス: どの stabilizer にも属さなかった op (data qubit への R 回転
+    など、ancilla を含まないもの) を「同じ qubit を使う直近の MS」の
+    stabilizer に帰属させる。従来はこれらが黙って脱落しており、partition
+    経由のコンパイルから data R 回転が消えていた。
+    """
     stabilizers: List[StabilizerInfo] = []
     active: Dict[int, StabilizerInfo] = {}  # ancilla -> current open stabilizer
+    uncovered: List[int] = []
 
     for idx, op in enumerate(program.instructions):
         if isinstance(op, ResetOp):
@@ -80,7 +89,7 @@ def _identify_stabilizers(
             owners = [t for t in getattr(op, "targets", []) if t in active]
 
         if not owners:
-            # Op not part of any open stabilizer (shouldn't happen for clean input)
+            uncovered.append(idx)
             continue
 
         owner = owners[0]
@@ -89,6 +98,40 @@ def _identify_stabilizers(
             for t in op.targets:
                 if t != owner:
                     active[owner].data_qubits.add(t)
+
+    # --- 第 2 パス: 無帰属 op を「同じ qubit の直近 MS」の stabilizer へ ---
+    if uncovered:
+        # qubit -> sorted list of (ms_op_index, stabilizer)
+        ms_by_qubit: Dict[int, List] = {}
+        for stab in stabilizers:
+            for op_idx in stab.op_indices:
+                op = program.instructions[op_idx]
+                if isinstance(op, GateOp) and op.type == "MS":
+                    for t in op.targets:
+                        ms_by_qubit.setdefault(t, []).append((op_idx, stab))
+        for lst in ms_by_qubit.values():
+            lst.sort(key=lambda x: x[0])
+
+        for idx in uncovered:
+            op = program.instructions[idx]
+            targets = getattr(op, "targets", [])
+            stab = None
+            for t in targets:
+                entries = ms_by_qubit.get(t, [])
+                after = [s for i, s in entries if i > idx]
+                before = [s for i, s in entries if i < idx]
+                stab = after[0] if after else (before[-1] if before else None)
+                if stab is not None:
+                    break
+            if stab is None:
+                raise ValueError(
+                    f"stabilizer 識別: op #{idx} ({op}) をどの stabilizer にも"
+                    f"帰属できません。partition 対象の回路は stabilizer 測定"
+                    f"のみで構成されている必要があります。")
+            stab.op_indices.append(idx)
+
+        for stab in stabilizers:
+            stab.op_indices.sort()
 
     return stabilizers
 
@@ -153,6 +196,18 @@ def partition_spatial_row(
 
     ancilla_set = set(ancilla_qubits)
     stabilizers = _identify_stabilizers(program, ancilla_set)
+
+    # 完全性チェック: 入力の全 op がいずれかの stabilizer に帰属していること。
+    # (黙って op を落とすと「動くが物理的に別の回路」になり検出困難なため)
+    covered = set()
+    for stab in stabilizers:
+        covered.update(stab.op_indices)
+    if len(covered) != len(program.instructions):
+        missing = [i for i in range(len(program.instructions)) if i not in covered]
+        raise ValueError(
+            f"partition_spatial_row: {len(missing)} 個の op が stabilizer に"
+            f"帰属していません (先頭: #{missing[0]} = "
+            f"{program.instructions[missing[0]]})")
 
     # Assign one reusable ancilla per LIZ. The number of ancillae is a compile
     # choice (= number of LIZs), not a circuit property, so if the circuit
@@ -232,15 +287,21 @@ def partition_spatial_row(
                         _replace_targets(program.instructions[op_idx], mapping)
                     )
     else:
-        # Preserve input ordering, only rewrite ancillae
-        new_instructions = list(program.instructions)
-        for s_idx, stab in enumerate(stabilizers):
+        # 入力順そのままの保存は不可: 入力で時間的にインターリーブしている
+        # 2 つの stabilizer (reuse 回路の ancilla 交互使用) が同じ LIZ の
+        # 同じ ancilla に書き換えられると、RESET が二重に開いて後段の
+        # stabilizer 識別が壊れる (op が黙って脱落する)。
+        # stabilizer 単位で入力初出順に直列化して emit する。boustrophedon の
+        # compile_per_liz は後段で幾何順に並べ替えるため命令順への依存はない。
+        order = sorted(range(len(stabilizers)),
+                       key=lambda i: stabilizers[i].op_indices[0])
+        new_instructions = []
+        for s_idx in order:
+            stab = stabilizers[s_idx]
             mapping = rewrite_per_stab[s_idx]
-            if not mapping:
-                continue
             for op_idx in stab.op_indices:
-                new_instructions[op_idx] = _replace_targets(
-                    new_instructions[op_idx], mapping
+                new_instructions.append(
+                    _replace_targets(program.instructions[op_idx], mapping)
                 )
 
     new_program = Program(

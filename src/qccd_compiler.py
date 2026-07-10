@@ -1124,6 +1124,16 @@ class MovementPlanner:
                 partition_liz = self._get_target_liz_for_op(op)
                 if partition_liz is not None:
                     target_liz = partition_liz
+                elif targets:
+                    # partition 不明 (data qubit への単一 qubit ゲート等):
+                    # イオン現在地の最寄り LIZ を選ぶ。「空きのある最初の LIZ」
+                    # だと満杯時に遠い LIZ が選ばれ、占有 LIZ の通過
+                    # (pass-through guard 違反) を誘発する。空きは後段の
+                    # 退避処理が確保する
+                    ion_zone = state.locate(targets[0])
+                    target_liz = min(
+                        (z.id for z in self.architecture.get_liz_zones()),
+                        key=lambda lz: abs(lz - ion_zone))
                 else:
                     target_liz = state.get_liz_with_space()
                     if target_liz is None:

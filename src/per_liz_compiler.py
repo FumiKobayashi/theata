@@ -357,7 +357,10 @@ def compile_per_liz(program: Program, ancilla_qubits: List[int],
                     config: Optional[CompilerConfig] = None,
                     stab_order: str = 'phase_alt',
                     placement_mode: str = '3tier',
-                    time_params=None) -> PerLIZResult:
+                    time_params=None,
+                    scan_reverse: bool = False,
+                    initial_zone_contents: Optional[Dict[int, List[int]]] = None,
+                    ) -> PerLIZResult:
     """回路を per-core stream にコンパイルする。
 
     stab_order:
@@ -369,8 +372,19 @@ def compile_per_liz(program: Program, ancilla_qubits: List[int],
       'greedy_alt' : per-LIZ で排他 M / shared M へ使用順に交互配置
     time_params:
       estimator.TimeParameters (フォノンパラメータの外部注入用、None でデフォルト)
+    scan_reverse:
+      True で牛耕式走査を完全逆順にする (複数ラウンドの実行順反転用)。
+      ラウンド k の最終配置から逆走を始めると再配置コストが小さい。
+      boustrophedon のみ対応。
+    initial_zone_contents:
+      zone_id -> [ion_ids] (順序付き)。前ラウンドの最終状態
+      (PerLIZResult.state.zone_contents) から次ラウンドを開始する用。
+      None なら placement_mode の計算配置から開始。指定時も home_map
+      (退避定位置) は placement_mode の計算結果を使う。
     """
     config = config or CompilerConfig(eviction_strategy="balanced")
+    if scan_reverse and stab_order != 'boustrophedon':
+        raise NotImplementedError("scan_reverse は boustrophedon のみ対応")
     liz_ids = [z.id for z in arch.get_liz_zones()]
     memory_zones = [z.id for z in arch.zones if z.zone_type == "M"]
 
@@ -426,8 +440,12 @@ def compile_per_liz(program: Program, ancilla_qubits: List[int],
             for s in per_liz.get(liz, []):
                 buckets.setdefault(round(geo[s][0] * 2) / 2, []).append(s)
             for k, rk in enumerate(sorted(buckets)):
+                # 順走: 偶数行は列昇順・奇数行は降順 (牛耕)。
+                # 逆走 (scan_reverse) は順走パスの完全な逆順なので、
+                # 行内の向きも反転する
+                desc = (k % 2 == 1) if not scan_reverse else (k % 2 == 0)
                 row_stabs = sorted(buckets[rk], key=lambda s: geo[s][1],
-                                   reverse=(k % 2 == 1))
+                                   reverse=desc)
                 key = (liz, f"row{k}")
                 for s in row_stabs:
                     blocks.setdefault(key, []).extend(
@@ -439,9 +457,13 @@ def compile_per_liz(program: Program, ancilla_qubits: List[int],
                         f" anc={stabs[s].ancilla_original}"
                         f" data={sorted(stabs[s].data_qubits)}")
             n_rows[liz] = len(buckets)
-        # 計画順: 行ごとに LIZ を交互 (両 LIZ が同時に自帯を上から走査する想定)
+        # 計画順: 行ごとに LIZ を交互 (両 LIZ が同時に自帯を上から走査する想定)。
+        # 逆走時は最終行から上へ戻る
         epoch_keys = []
-        for k in range(max(n_rows.values())):
+        row_order = range(max(n_rows.values()))
+        if scan_reverse:
+            row_order = reversed(list(row_order))
+        for k in row_order:
             for liz in liz_ids:
                 if blocks.get((liz, f"row{k}")):
                     epoch_keys.append((liz, f"row{k}"))
@@ -509,6 +531,13 @@ def compile_per_liz(program: Program, ancilla_qubits: List[int],
         placement = dict(ordered_items)
     else:
         raise ValueError(f"unknown placement_mode: {placement_mode}")
+
+    # 前ラウンドの最終状態から開始する場合: 物理配置だけ差し替え、
+    # home_map (退避定位置) は placement_mode の計算結果を維持する
+    if initial_zone_contents is not None:
+        ordered_items = [(ion, z)
+                         for z in sorted(initial_zone_contents)
+                         for ion in initial_zone_contents[z]]
 
     ordered_placement = dict(ordered_items)
     state = QCCDState(architecture=arch)
