@@ -195,10 +195,60 @@ def test_cool_with_coolant_transport():
     print("test_cool_with_coolant_transport: OK")
 
 
+def test_auto_cool_threshold():
+    """閾値ベース自動冷却: MS 直前挿入 + ゲート時フォノンが閾値以下になる"""
+    from qccd_compiler import CompilerConfig
+
+    code = """
+    QUBIT 0 AT (1, 0)
+    QUBIT 1 AT (1, 1)
+    QUBIT 9 AT (5, 0)
+
+    RESET 9
+    MS 0 9 0.25
+    MS 1 9 0.25
+    MEASURE 9
+    """
+    arch = QCCDArchitecture.simple_mlm(liz_capacity=4)
+    initial = {0: 1, 1: 1, 9: 5}
+
+    def compile_with(threshold):
+        dag = DAGBuilder(parse(code)).build()
+        cfg = CompilerConfig(cool_threshold_transversal=threshold)
+        return QCCDCompiler(arch, config=cfg).compile(dag, dict(initial))
+
+    # 閾値なし → CoolOp なし。輸送で transversal が僅かに載る
+    base = compile_with(None)
+    assert base.stats["cools"] == 0
+    at_gates = base.phonon_data['at_gates']
+    max_tr_base = max(max(p[1] for p in g['phonons'].values()) for g in at_gates)
+    assert max_tr_base > 0.05, "テスト前提: 輸送で transversal が载ること"
+
+    # 極小閾値 → MS 直前に CoolOp が挿入され、ゲート時 transversal は残留値 0
+    thr = 0.05
+    cooled = compile_with(thr)
+    assert cooled.stats["cools"] > 0
+    for g in cooled.phonon_data['at_gates']:
+        max_tr = max(p[1] for p in g['phonons'].values())
+        assert max_tr <= thr + 1e-9, f"gate {g['gate']} tr={max_tr} > {thr}"
+    # CoolOp は対応する MS の直前に並ぶ
+    flat = cooled.flat_ops
+    for i, op in enumerate(flat):
+        if isinstance(op, CoolOp):
+            nxt = flat[i + 1]
+            assert getattr(nxt, 'type', '') == 'MS'
+            assert nxt.zone_id == op.zone_id
+    # validator も通る
+    v = Validator(arch).validate(cooled.flat_ops, initial)
+    assert v.is_valid, v.summary()
+    print("test_auto_cool_threshold: OK")
+
+
 if __name__ == "__main__":
     test_sim_params_loading()
     test_parse_cool()
     test_cool_chain_unit()
     test_pipeline_with_cool()
     test_cool_with_coolant_transport()
+    test_auto_cool_threshold()
     print("\nAll cooling tests passed.")

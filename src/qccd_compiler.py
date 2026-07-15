@@ -47,12 +47,19 @@ class CompilerConfig:
         eviction_strategy: LIZからの退避戦略
             - "balanced": アンシラの左右で振り分け（複数ラウンド向き、配置バランス保持）
             - "nearest": 最寄りMemoryへBFS（1ラウンド最小ops）
+        cool_threshold_transversal: 閾値ベース自動冷却 (None で無効)
+            - MS 実行直前にゲート対象チェーンの transversal フォノンが
+              この値を超えていたら、LIZ に CoolOp を挿入してから MS を実行する
+            - 「ゲート時フォノンの最大値を閾値以下に抑える」ポリシー。
+              エラーモデル (PauliErrorLookup) が使うのは transversal のため
+              transversal のみ監視する
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
     measure_batch_size: int = 1
     interleave: bool = False
     eviction_strategy: str = "balanced"
+    cool_threshold_transversal: Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -80,6 +87,10 @@ class CompilerConfig:
             raise ValueError(f"Invalid eviction_strategy: {self.eviction_strategy}. Valid: {valid_eviction}")
         if not isinstance(self.measure_batch_size, int) or self.measure_batch_size < 1:
             raise ValueError(f"measure_batch_size must be int >= 1, got {self.measure_batch_size}")
+        if self.cool_threshold_transversal is not None and self.cool_threshold_transversal < 0:
+            raise ValueError(
+                f"cool_threshold_transversal must be >= 0 or None, "
+                f"got {self.cool_threshold_transversal}")
 
 
 # ==========================================
@@ -863,6 +874,11 @@ class MovementPlanner:
                         ops.append(self._annotate_gate(node.operation, state))
                         dag.execute(node.id)
                 else:
+                    # 閾値ベース自動冷却: MS 直前にゲート対象チェーンの
+                    # transversal フォノンが閾値超なら CoolOp を先に挿入
+                    cool_op = self._maybe_auto_cool(node.operation, state)
+                    if cool_op is not None:
+                        ops.append(cool_op)
                     ops.append(self._annotate_gate(node.operation, state))
                     dag.execute(node.id)
 
@@ -1018,6 +1034,28 @@ class MovementPlanner:
         if fallback:
             return fallback[0]
         return None
+
+    def _maybe_auto_cool(self, op: Operation, state: QCCDState) -> Optional[CoolOp]:
+        """閾値ベース自動冷却の判定 (cool_threshold_transversal ポリシー)。
+
+        MS 直前にゲート対象イオンの transversal フォノンを見て、閾値を
+        超えていたらその LIZ の CoolOp を生成し、状態にも冷却効果を適用する。
+        冷却はチェーン全体 (LIZ 内の同乗イオン含む) に効く。
+        record_gate_phonon は _annotate_gate 側 (冷却後) で走るため、
+        記録されるゲート時フォノン = 冷却後の値になる。
+        """
+        thr = self.config.cool_threshold_transversal
+        if thr is None:
+            return None
+        if not (isinstance(op, GateOp) and op.type == 'MS' and op.targets):
+            return None
+        if not state.phonon_params:
+            return None
+        if max(state.phonon_transversal.get(t, 0.0) for t in op.targets) <= thr:
+            return None
+        zone = state.locate(op.targets[0])
+        state.cool_chain(zone)
+        return CoolOp(zone_id=zone)
 
     def _annotate_gate(self, op: Operation, state: QCCDState) -> Operation:
         """GateOp/ResetOp/MeasureOpにzone_idを付与した新しいオペレーションを返す"""
