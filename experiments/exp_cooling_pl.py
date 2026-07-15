@@ -62,7 +62,7 @@ def wilson_interval(k, n, z=1.96):
     return (max(0.0, center - half), min(1.0, center + half))
 
 
-def compile_rounds(threshold, rounds):
+def compile_rounds(cfg_kwargs, rounds):
     forward, reverse, _ = DISTANCE_CIRCUITS[5]
     fwd_mod = __import__(forward)
     half = (len(fwd_mod.DATA_QUBITS) + 1) // 2
@@ -71,7 +71,7 @@ def compile_rounds(threshold, rounds):
     initial = placement_greedy_alt(
         fwd_mod.DATA_QUBITS, fwd_mod.ANCILLA_QUBITS, fwd_mod)
 
-    cfg = CompilerConfig(cool_threshold_transversal=threshold)
+    cfg = CompilerConfig(**cfg_kwargs)
     results = []
     placement, zone_contents = initial, None
     for r in range(1, rounds + 1):
@@ -88,9 +88,8 @@ def compile_rounds(threshold, rounds):
     return results
 
 
-def run_arm(threshold, rounds, shots, seed, params):
-    label = f"cool@{threshold}" if threshold is not None else "no-cool"
-    results = compile_rounds(threshold, rounds)
+def run_arm(label, cfg_kwargs, rounds, shots, seed, params):
+    results = compile_rounds(cfg_kwargs, rounds)
 
     n_cools = sum(cr.stats.get('cools', 0) for cr in results)
     pe = ParallelEstimator()
@@ -127,7 +126,7 @@ def run_arm(threshold, rounds, shots, seed, params):
           f"max_tr@gate={max_tr_at_gate:6.2f}  "
           f"p_L={n_err/shots:.6f} ({n_err}/{shots})")
     return {
-        'label': label, 'threshold': threshold, 'n_cools': n_cools,
+        'label': label, 'config': cfg_kwargs, 'n_cools': n_cools,
         'round_ms': round_ms, 'wall_ms': sum(round_ms),
         'max_tr_at_gate': max_tr_at_gate,
         'n_err': n_err, 'shots': shots, 'p_l': n_err / shots,
@@ -136,8 +135,11 @@ def run_arm(threshold, rounds, shots, seed, params):
 
 
 def main():
-    ap = argparse.ArgumentParser(description='Threshold cooling p_L (1-LIZ, d=5)')
-    ap.add_argument('--threshold', type=float, default=5.0)
+    ap = argparse.ArgumentParser(description='Cooling policy p_L comparison (1-LIZ, d=5)')
+    ap.add_argument('--threshold', type=float, default=None,
+                    help='MS 直前閾値冷却の transversal 閾値 (例: 5.0)。省略で arm なし')
+    ap.add_argument('--ancilla-cool-us', type=float, default=None,
+                    help='アンシラ測定後冷却の duration μs (例: 2000)。省略で arm なし')
     ap.add_argument('--rounds', type=int, default=3)
     ap.add_argument('--shots', type=int, default=50_000)
     ap.add_argument('--seed', type=int, default=2026)
@@ -145,13 +147,18 @@ def main():
     args = ap.parse_args()
 
     params = default_noise_params()
-    print(f"1-LIZ d=5, rounds={args.rounds}, shots={args.shots}, "
-          f"cool duration={400.0}us, threshold=transversal {args.threshold}")
+    print(f"1-LIZ d=5, rounds={args.rounds}, shots={args.shots}")
 
-    rows = [
-        run_arm(None, args.rounds, args.shots, args.seed, params),
-        run_arm(args.threshold, args.rounds, args.shots, args.seed, params),
-    ]
+    arms = [("no-cool", {})]
+    if args.ancilla_cool_us is not None:
+        arms.append((f"anc@{args.ancilla_cool_us:g}us",
+                     {'cool_ancilla_after_measure_us': args.ancilla_cool_us}))
+    if args.threshold is not None:
+        arms.append((f"thr@{args.threshold:g}",
+                     {'cool_threshold_transversal': args.threshold}))
+
+    rows = [run_arm(label, kw, args.rounds, args.shots, args.seed, params)
+            for label, kw in arms]
 
     print(f"\n{'='*72}")
     print(f"  {'arm':10s} {'p_L':>10s} {'95% CI':>24s} {'wall(ms)':>9s} "
@@ -165,7 +172,9 @@ def main():
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    path = out / f"pl_cooling_d5_thr{args.threshold}_r{args.rounds}_{stamp}.json"
+    tag = "_".join(label for label, _ in arms[1:]) or "baseline"
+    tag = tag.replace('@', '').replace('.', 'p')
+    path = out / f"pl_cooling_d5_{tag}_r{args.rounds}_{stamp}.json"
     path.write_text(json.dumps({
         'rounds': args.rounds, 'shots': args.shots, 'seed': args.seed,
         'noise_params': params, 'results': rows,

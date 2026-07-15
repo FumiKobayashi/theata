@@ -53,6 +53,11 @@ class CompilerConfig:
             - 「ゲート時フォノンの最大値を閾値以下に抑える」ポリシー。
               エラーモデル (PauliErrorLookup) が使うのは transversal のため
               transversal のみ監視する
+        cool_ancilla_after_measure_us: アンシラ測定後冷却 (None で無効)
+            - 各 MEASURE の直後、アンシラの居る LIZ に指定時間 (μs) の
+              CoolOp を挿入し、フォノンを残留値 (デフォルト 0) に戻す
+            - 測定時はアンシラ以外が退避済みのため実質アンシラのみ冷える。
+              基底状態への深い再冷却の想定 (例: 2000μs)
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
@@ -60,6 +65,7 @@ class CompilerConfig:
     interleave: bool = False
     eviction_strategy: str = "balanced"
     cool_threshold_transversal: Optional[float] = None
+    cool_ancilla_after_measure_us: Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -91,6 +97,11 @@ class CompilerConfig:
             raise ValueError(
                 f"cool_threshold_transversal must be >= 0 or None, "
                 f"got {self.cool_threshold_transversal}")
+        if (self.cool_ancilla_after_measure_us is not None
+                and self.cool_ancilla_after_measure_us <= 0):
+            raise ValueError(
+                f"cool_ancilla_after_measure_us must be > 0 or None, "
+                f"got {self.cool_ancilla_after_measure_us}")
 
 
 # ==========================================
@@ -882,6 +893,11 @@ class MovementPlanner:
                     ops.append(self._annotate_gate(node.operation, state))
                     dag.execute(node.id)
 
+                    # アンシラ測定後冷却: MEASURE 直後に深い再冷却を挿入
+                    post_cool = self._maybe_cool_after_measure(node.operation, state)
+                    if post_cool is not None:
+                        ops.append(post_cool)
+
                     # Interleave: MS gate実行後にスタビライザを切り替え
                     if self.config.interleave and isinstance(node.operation, GateOp) and node.operation.type == 'MS':
                         current_stab = node.stabilizer_id
@@ -956,6 +972,13 @@ class MovementPlanner:
         all_targets = [item[0] for item in pending_measures]
         batch_measure = MeasureOp(targets=all_targets, zone_id=target_liz)
         ops.append(batch_measure)
+
+        # アンシラ測定後冷却: バッチ測定直後に LIZ 上の全アンシラを再冷却
+        if self.config.cool_ancilla_after_measure_us is not None:
+            state.cool_chain(target_liz)
+            ops.append(CoolOp(
+                zone_id=target_liz,
+                duration_us=self.config.cool_ancilla_after_measure_us))
 
         # バッチReset: MEASURE直後に無条件で全アンシラをRESET
         # アンシラはまだLIZ上にいるので搬送不要
@@ -1056,6 +1079,20 @@ class MovementPlanner:
         zone = state.locate(op.targets[0])
         state.cool_chain(zone)
         return CoolOp(zone_id=zone)
+
+    def _maybe_cool_after_measure(self, op: Operation,
+                                  state: QCCDState) -> Optional[CoolOp]:
+        """アンシラ測定後冷却 (cool_ancilla_after_measure_us ポリシー)。
+
+        MEASURE の直後にアンシラの LIZ へ指定時間の CoolOp を挿入する。
+        測定時は非対象イオンが退避済みなので、実質アンシラだけが冷える。
+        """
+        dur = self.config.cool_ancilla_after_measure_us
+        if dur is None or not isinstance(op, MeasureOp) or not op.targets:
+            return None
+        zone = state.locate(op.targets[0])
+        state.cool_chain(zone)
+        return CoolOp(zone_id=zone, duration_us=dur)
 
     def _annotate_gate(self, op: Operation, state: QCCDState) -> Operation:
         """GateOp/ResetOp/MeasureOpにzone_idを付与した新しいオペレーションを返す"""
