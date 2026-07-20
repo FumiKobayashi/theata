@@ -37,6 +37,7 @@ from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from stim_recompiler import recompile_multi_round
 from parallel_estimator import ParallelEstimator
 from ion_timeline import gaps_from_compile_results
+from sim_params import load_time_parameters
 from pauli_lookup import PauliErrorLookup
 from exp_noise_injection import (
     phonon_to_pauli_lookup_rates,
@@ -88,11 +89,11 @@ def compile_rounds(cfg_kwargs, rounds):
     return results
 
 
-def run_arm(label, cfg_kwargs, rounds, shots, seed, params):
+def run_arm(label, cfg_kwargs, rounds, shots, seed, params, tp=None):
     results = compile_rounds(cfg_kwargs, rounds)
 
     n_cools = sum(cr.stats.get('cools', 0) for cr in results)
-    pe = ParallelEstimator()
+    pe = ParallelEstimator(tp) if tp else ParallelEstimator()
     round_ms = [pe.estimate(cr.timesteps).total_time / 1000 for cr in results]
 
     all_gates = []
@@ -106,7 +107,7 @@ def run_arm(label, cfg_kwargs, rounds, shots, seed, params):
         200, separate_observables=True)
     assert det.sum() == 0 and obs.sum() == 0, "noiseless detectors non-zero"
 
-    anchor_ops, gaps = gaps_from_compile_results(results)
+    anchor_ops, gaps = gaps_from_compile_results(results, time_params=tp)
     pauli_rates = phonon_to_pauli_lookup_rates(
         all_gates, PAULI_LOOKUP, mode=LOOKUP_MODE)
     noisy = inject_noise_approach_b(circuit, pauli_rates, params,
@@ -140,6 +141,9 @@ def main():
                     help='MS 直前閾値冷却の transversal 閾値 (例: 5.0)。省略で arm なし')
     ap.add_argument('--ancilla-cool-us', type=float, default=None,
                     help='アンシラ測定後冷却の duration μs (例: 2000)。省略で arm なし')
+    ap.add_argument('--cool-us', type=float, default=None,
+                    help='閾値冷却 1 回の時間 μs (TimeParameters.cool を上書き、'
+                         'デフォルト 400)')
     ap.add_argument('--rounds', type=int, default=3)
     ap.add_argument('--shots', type=int, default=50_000)
     ap.add_argument('--seed', type=int, default=2026)
@@ -147,17 +151,21 @@ def main():
     args = ap.parse_args()
 
     params = default_noise_params()
-    print(f"1-LIZ d=5, rounds={args.rounds}, shots={args.shots}")
+    tp = (load_time_parameters(overrides={'cool': args.cool_us})
+          if args.cool_us is not None else None)
+    cool_us = args.cool_us if args.cool_us is not None else 400.0
+    print(f"1-LIZ d=5, rounds={args.rounds}, shots={args.shots}, "
+          f"threshold-cool duration={cool_us:g}us")
 
     arms = [("no-cool", {})]
     if args.ancilla_cool_us is not None:
         arms.append((f"anc@{args.ancilla_cool_us:g}us",
                      {'cool_ancilla_after_measure_us': args.ancilla_cool_us}))
     if args.threshold is not None:
-        arms.append((f"thr@{args.threshold:g}",
+        arms.append((f"thr@{args.threshold:g}/{cool_us:g}us",
                      {'cool_threshold_transversal': args.threshold}))
 
-    rows = [run_arm(label, kw, args.rounds, args.shots, args.seed, params)
+    rows = [run_arm(label, kw, args.rounds, args.shots, args.seed, params, tp=tp)
             for label, kw in arms]
 
     print(f"\n{'='*72}")
@@ -173,7 +181,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     tag = "_".join(label for label, _ in arms[1:]) or "baseline"
-    tag = tag.replace('@', '').replace('.', 'p')
+    tag = tag.replace('@', '').replace('.', 'p').replace('/', '-')
     path = out / f"pl_cooling_d5_{tag}_r{args.rounds}_{stamp}.json"
     path.write_text(json.dumps({
         'rounds': args.rounds, 'shots': args.shots, 'seed': args.seed,
