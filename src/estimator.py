@@ -185,7 +185,8 @@ class Estimator:
             return ("Shuttle", self.params.shuttle_time(dst_chain_length=op.dst_chain_length))
         
         elif isinstance(op, CoolOp):
-            return ("Cool", self.params.cool)
+            dur = op.duration_us if op.duration_us is not None else self.params.cool
+            return ("Cool", dur)
 
         elif isinstance(op, BarrierOp):
             # バリアは同期点で、実行時間なし

@@ -32,7 +32,7 @@ from typing import List, Dict, Optional, Tuple, Sequence, FrozenSet
 
 from ast_def import (
     Operation, GateOp, ResetOp, MeasureOp,
-    ShuttleOp, SwapOp, SplitOp, MergeOp, BarrierOp,
+    ShuttleOp, SwapOp, SplitOp, MergeOp, BarrierOp, CoolOp,
 )
 
 
@@ -48,9 +48,10 @@ def _group_ops_by_stabilizer(
     DAG の stabilizer_id に依存しない（stabilizer_parallel=False で構築された DAG でも動く）。
     各 stabilizer は: RESET <ancilla> → ... → MEASURE <ancilla>（同じ ancilla）の連続列。
 
-    transport op (Shuttle/Split/Merge/Swap) と BarrierOp は skip する。
+    transport op (Shuttle/Split/Merge/Swap) と BarrierOp / CoolOp は skip する
+    (CoolOp はフォノン効果のみで論理回路には現れない)。
     """
-    transport_types = (ShuttleOp, SwapOp, SplitOp, MergeOp)
+    transport_types = (ShuttleOp, SwapOp, SplitOp, MergeOp, CoolOp, BarrierOp)
     stabilizers: List[List[Operation]] = []
     current: List[Operation] = []
     active_ancilla: Optional[int] = None

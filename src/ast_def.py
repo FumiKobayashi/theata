@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Set
+from typing import List, Optional, Set
 
 # ==========================================
 # 基本型
@@ -149,10 +149,15 @@ class CoolOp(Operation):
     用の補助イオン。-1 は「coolant をモデル化しない」暫定モード
     （詳細仕様の確定までのデフォルト）。coolant_id >= 0 の場合、
     実行時に coolant が zone_id に居ることを要求する。
+
+    duration_us: この命令固有の冷却時間。None なら TimeParameters.cool
+    （共通デフォルト）を使う。用途例: アンシラ測定後の基底状態への
+    深い再冷却 (2000μs) と、ゲート前の軽い冷却 (400μs) の使い分け。
     """
     zone_id: int
     coolant_id: int = -1
     type: str = "COOL"
+    duration_us: Optional[float] = None
 
 
 @dataclass

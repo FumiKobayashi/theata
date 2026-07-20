@@ -372,6 +372,7 @@ def inject_noise_approach_b(
     circuit: stim.Circuit,
     error_rates_ms: list,
     params: dict = None,
+    include_idle: bool = True,
 ) -> stim.Circuit:
     """Inject noise per Approach B (5-step CX, 2-step H, target-only MEASURE/RESET).
 
@@ -380,9 +381,14 @@ def inject_noise_approach_b(
       - H  → H + 2-step error block (R-R)
       - M/MR/MX → X_ERROR(p_meas) on target before measurement
       - R/RX/RZ → X_ERROR(p_reset) on target after reset
-      - Idle qubits (= non-target) get Z_ERROR(p_idle) only during R / MS steps;
-        MEASURE / RESET の他 qubit idle は無視（前回合意、不確実性のため）
+      - Idle qubits (= non-target) get Z_ERROR(p_idle) during R / MS /
+        MEASURE / RESET steps (nominal durations)
       - DETECTOR / OBSERVABLE_INCLUDE / TICK は pass-through
+
+    include_idle=False にするとゲート系の idle Z_ERROR を全て抑止し、
+    ゲートエラー (DEPOLARIZE / X_ERROR) だけを挿入する。per-ion タイムライン
+    方式 (inject_per_ion_idle) と組み合わせるときはこちらを使う
+    (idle の会計をタイムライン側へ一本化するため)。
     """
     if params is None:
         params = default_noise_params()
@@ -391,12 +397,15 @@ def inject_noise_approach_b(
     all_qubits = _get_declared_qubits(circuit)
     ms_idx = 0  # index into error_rates_ms (one per MS gate / CX pair)
 
-    p_idle_R = compute_p_idle(params['t_R_us'], params['gamma_phi_per_s'])
-    p_idle_MS = compute_p_idle(params['t_MS_us'], params['gamma_phi_per_s'])
-    p_idle_meas = compute_p_idle(params['t_meas_us'], params['gamma_phi_per_s'])
-    p_idle_reset = compute_p_idle(params['t_reset_us'], params['gamma_phi_per_s'])
-    p_idle_mr = compute_p_idle(
-        params['t_meas_us'] + params['t_reset_us'], params['gamma_phi_per_s'])
+    if include_idle:
+        p_idle_R = compute_p_idle(params['t_R_us'], params['gamma_phi_per_s'])
+        p_idle_MS = compute_p_idle(params['t_MS_us'], params['gamma_phi_per_s'])
+        p_idle_meas = compute_p_idle(params['t_meas_us'], params['gamma_phi_per_s'])
+        p_idle_reset = compute_p_idle(params['t_reset_us'], params['gamma_phi_per_s'])
+        p_idle_mr = compute_p_idle(
+            params['t_meas_us'] + params['t_reset_us'], params['gamma_phi_per_s'])
+    else:
+        p_idle_R = p_idle_MS = p_idle_meas = p_idle_reset = p_idle_mr = 0.0
 
     for instruction in circuit:
         name = instruction.name
@@ -642,6 +651,107 @@ def inject_per_op_transport_dephasing(
                     out.append("Z_ERROR", all_qubits, p)
                     out.append("TICK")
         out.append(inst)
+
+    return out
+
+
+def inject_per_ion_idle(
+    noisy_circuit: stim.Circuit,
+    anchor_ops: list,
+    ion_gaps,
+    params: dict = None,
+) -> stim.Circuit:
+    """(C) Per-ion timeline variant — idle dephasing の正確な per-qubit 挿入。
+
+    ion_timeline.gaps_from_compile_results / gaps_from_per_liz_results で
+    計算した per-ion ギャップを、各 Stim anchor (R / CX / M) の直前に
+    `Z_ERROR(p_idle(Δt_ion))` として **そのイオンにだけ** 挿入する。
+
+    旧方式 (inject_noise_approach_b の idle Z_ERROR + transport dephasing) との
+    関係: 旧方式は大域直列タイムラインを前提に idle 時間を「ゲート回数×公称時間 +
+    全 qubit 一律残差」の 2 経路で近似配分していた。本方式は各イオンの実経過時間
+    そのものを使うため 1-LIZ でも本来正しく、multi-LIZ (per-LIZ stream) では
+    旧方式が二重計上で破綻するため必須。組み合わせは:
+
+        noisy = inject_noise_approach_b(circuit, rates, params, include_idle=False)
+        noisy = inject_per_ion_idle(noisy, anchor_ops, ion_gaps, params)
+
+    正しさの根拠 (memory: multi-liz-stim-plan):
+      per-qubit の op 順序が物理順と一致する線形化上では、ギャップ内に
+      そのイオンの op は存在せず、他イオンの op とは可換なので、
+      「次 op の直前」への挿入は物理タイムライン上の任意位置と厳密に等価。
+
+    Args:
+        noisy_circuit: ゲートエラー挿入済み Stim 回路 (anchor 列は入力回路と同一)
+        anchor_ops: コンパイル済み anchor op (ResetOp / GateOp('MS') / MeasureOp)
+                    を Stim 論理 op 順 (= flat_ops / merged_flat 順) に並べたリスト
+        ion_gaps: ion_timeline.IonGaps (gaps_by_op: id(op) -> {ion: gap_us})
+        params: noise params dict (gamma_phi_per_s を使用)
+
+    Returns:
+        per-ion idle Z_ERROR を挿入した Stim 回路
+    """
+    if params is None:
+        params = default_noise_params()
+    gamma = params['gamma_phi_per_s']
+
+    def _kind_matches(inst_name: str, op, targets: list) -> bool:
+        if inst_name == 'R':
+            return isinstance(op, ResetOp) and set(targets) == set(op.targets)
+        if inst_name == 'CX':
+            return (isinstance(op, GateOp) and op.type == 'MS'
+                    and set(targets) == set(op.targets))
+        if inst_name == 'M':
+            return isinstance(op, MeasureOp) and set(targets) == set(op.targets)
+        return False
+
+    out = stim.Circuit()
+    a_idx = 0
+    anchor_names = {'R', 'CX', 'M'}
+
+    for inst in noisy_circuit:
+        if inst.name in anchor_names:
+            qubit_targets = [t.value for t in inst.targets_copy()
+                             if t.is_qubit_target]
+            # CX は 1 命令に複数ペアがあり得るのでペア単位で anchor を消費
+            if inst.name == 'CX':
+                groups = [qubit_targets[i:i + 2]
+                          for i in range(0, len(qubit_targets), 2)]
+            else:
+                groups = [[q] for q in qubit_targets]
+
+            for grp in groups:
+                if a_idx >= len(anchor_ops):
+                    # 全 compiled anchor 消費後の M = 最終 transversal data 測定
+                    # (recompiler が合成、コンパイル済み op に対応物なし)。
+                    # そのイオンの trailing idle (最後の op → 回路終端) を挿入する
+                    if inst.name == 'M' and len(grp) == 1:
+                        gap_us = ion_gaps.trailing_idle.get(grp[0], 0.0)
+                        p = compute_p_idle(gap_us, gamma)
+                        if p > 0:
+                            out.append("Z_ERROR", [grp[0]], p)
+                        continue
+                    raise ValueError(
+                        f"Stim anchor が compiled anchor より多い: "
+                        f"{inst.name} {grp} に対応する op がありません")
+                op = anchor_ops[a_idx]
+                a_idx += 1
+                if not _kind_matches(inst.name, op, grp):
+                    raise ValueError(
+                        f"anchor 不一致: Stim {inst.name} {grp} vs compiled "
+                        f"{type(op).__name__}({getattr(op, 'targets', None)}) "
+                        f"@ index {a_idx - 1}")
+                gaps = ion_gaps.gaps_by_op.get(id(op), {})
+                for ion, gap_us in sorted(gaps.items()):
+                    p = compute_p_idle(gap_us, gamma)
+                    if p > 0:
+                        out.append("Z_ERROR", [ion], p)
+        out.append(inst)
+
+    if a_idx != len(anchor_ops):
+        raise ValueError(
+            f"compiled anchor が Stim 回路より多い: {len(anchor_ops) - a_idx} 個未消費 "
+            f"(Stim 回路と compile_results の対応を確認してください)")
 
     return out
 
