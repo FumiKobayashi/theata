@@ -129,6 +129,7 @@ def phonon_to_pauli_lookup_rates(
     mode: str = "strict",
     override_n_bar: float = None,
     phonon_scale: float = 1.0,
+    warn_on_clip: bool = True,
 ) -> list:
     """各 MS ゲートのフォノン数 (transversal) を n_bar として lookup table を引き、
     15 個の Pauli 確率 (PAULI_CHANNEL_2 入力) を返す。
@@ -146,6 +147,8 @@ def phonon_to_pauli_lookup_rates(
             数学的に等価**。 後者の方が安価に試せるのでこちらで実装。
             (per-op-type の不等倍率は post-hoc では出来ないが、 当面は全op一律で十分)。
             override_n_bar が指定されたらこちらの方が優先される。
+        warn_on_clip: False で table 上限超過の per-gate RuntimeWarning を抑制し、
+            代わりに超過ゲート数の 1 行サマリを print する (クリップ動作は不変)。
 
     n_bar の取り方 (override_n_bar=None のとき):
         その MS 関与する 2 qubit の transversal phonon の max × phonon_scale。
@@ -154,6 +157,9 @@ def phonon_to_pauli_lookup_rates(
         [(gate_name, pauli_probs_15, n_bar_used, max_axial, max_transversal), ...]
         ※ 最後の max_axial/transversal は **scale 前の生値** (記録用)
     """
+    n_max = lookup.n_bar_range[1]
+    n_clipped = 0
+    worst_n = 0.0
     rates = []
     for gate_info in phonon_at_gates:
         phonons = gate_info['phonons']
@@ -163,9 +169,17 @@ def phonon_to_pauli_lookup_rates(
         max_tr_scaled = max_tr * phonon_scale
         # override が指定されていればそちら優先、 そうでなければ scaled を使う
         n_input = override_n_bar if override_n_bar is not None else max_tr_scaled
-        n_bar_used = lookup.select_n_bar(n_input, mode=mode)
-        pauli_probs = lookup.lookup(n_input, mode=mode)
+        if n_input > n_max:
+            n_clipped += 1
+            worst_n = max(worst_n, n_input)
+        n_bar_used = lookup.select_n_bar(n_input, mode=mode,
+                                         warn_on_clip=warn_on_clip)
+        # select_n_bar で警告済みのため lookup 側は常に抑制 (従来は同一ゲートで 2 重警告)
+        pauli_probs = lookup.lookup(n_input, mode=mode, warn_on_clip=False)
         rates.append((gate_info['gate'], pauli_probs, n_bar_used, max_ax, max_tr))
+    if n_clipped and not warn_on_clip:
+        print(f"  [clip] {n_clipped}/{len(rates)} MS gates exceed lookup table "
+              f"max n_bar={n_max:g} (worst {worst_n:.1f}); clipped to max")
     return rates
 
 

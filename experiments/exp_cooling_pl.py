@@ -89,7 +89,8 @@ def compile_rounds(cfg_kwargs, rounds):
     return results
 
 
-def run_arm(label, cfg_kwargs, rounds, shots, seed, params, tp=None):
+def run_arm(label, cfg_kwargs, rounds, shots, seed, params, tp=None,
+            warn_on_clip=True):
     results = compile_rounds(cfg_kwargs, rounds)
 
     n_cools = sum(cr.stats.get('cools', 0) for cr in results)
@@ -109,7 +110,7 @@ def run_arm(label, cfg_kwargs, rounds, shots, seed, params, tp=None):
 
     anchor_ops, gaps = gaps_from_compile_results(results, time_params=tp)
     pauli_rates = phonon_to_pauli_lookup_rates(
-        all_gates, PAULI_LOOKUP, mode=LOOKUP_MODE)
+        all_gates, PAULI_LOOKUP, mode=LOOKUP_MODE, warn_on_clip=warn_on_clip)
     noisy = inject_noise_approach_b(circuit, pauli_rates, params,
                                     include_idle=False)
     noisy = inject_per_ion_idle(noisy, anchor_ops, gaps, params)
@@ -141,9 +142,15 @@ def main():
                     help='MS 直前閾値冷却の transversal 閾値 (例: 5.0)。省略で arm なし')
     ap.add_argument('--ancilla-cool-us', type=float, default=None,
                     help='アンシラ測定後冷却の duration μs (例: 2000)。省略で arm なし')
+    ap.add_argument('--ancilla-cool-intervals', type=int, nargs='+', default=[1],
+                    help='アンシラ測定後冷却の周期リスト (例: 1 2)。'
+                         '周期ごとに 1 arm 追加 (--ancilla-cool-us 指定時のみ有効)')
     ap.add_argument('--cool-us', type=float, default=None,
                     help='閾値冷却 1 回の時間 μs (TimeParameters.cool を上書き、'
                          'デフォルト 400)')
+    ap.add_argument('--quiet-clip', action='store_true',
+                    help='lookup table 上限超過の per-gate 警告を抑制し、'
+                         'arm ごとの 1 行サマリだけ表示する')
     ap.add_argument('--rounds', type=int, default=3)
     ap.add_argument('--shots', type=int, default=50_000)
     ap.add_argument('--seed', type=int, default=2026)
@@ -159,13 +166,19 @@ def main():
 
     arms = [("no-cool", {})]
     if args.ancilla_cool_us is not None:
-        arms.append((f"anc@{args.ancilla_cool_us:g}us",
-                     {'cool_ancilla_after_measure_us': args.ancilla_cool_us}))
+        for k in args.ancilla_cool_intervals:
+            label = (f"anc@{args.ancilla_cool_us:g}us" if k == 1
+                     else f"anc@{args.ancilla_cool_us:g}us/every{k}")
+            kw = {'cool_ancilla_after_measure_us': args.ancilla_cool_us}
+            if k != 1:
+                kw['cool_ancilla_measure_interval'] = k
+            arms.append((label, kw))
     if args.threshold is not None:
         arms.append((f"thr@{args.threshold:g}/{cool_us:g}us",
                      {'cool_threshold_transversal': args.threshold}))
 
-    rows = [run_arm(label, kw, args.rounds, args.shots, args.seed, params, tp=tp)
+    rows = [run_arm(label, kw, args.rounds, args.shots, args.seed, params, tp=tp,
+                    warn_on_clip=not args.quiet_clip)
             for label, kw in arms]
 
     print(f"\n{'='*72}")
