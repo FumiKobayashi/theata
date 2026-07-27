@@ -292,6 +292,58 @@ def test_cool_ancilla_after_measure():
     print("test_cool_ancilla_after_measure: OK")
 
 
+def test_cool_ancilla_measure_interval():
+    """アンシラ測定後冷却の周期指定: MEASURE N 回につき CoolOp 1 個"""
+    from ast_def import MeasureOp
+    from qccd_compiler import CompilerConfig
+
+    code = """
+    QUBIT 0 AT (1, 0)
+    QUBIT 1 AT (1, 1)
+    QUBIT 9 AT (5, 0)
+
+    RESET 9
+    MS 0 9 0.25
+    MEASURE 9
+    RESET 9
+    MS 1 9 0.25
+    MEASURE 9
+    """
+    arch = QCCDArchitecture.simple_mlm(liz_capacity=4)
+    initial = {0: 1, 1: 1, 9: 5}
+
+    def compile_with(interval):
+        dag = DAGBuilder(parse(code)).build()
+        cfg = CompilerConfig(cool_ancilla_after_measure_us=1000.0,
+                             cool_ancilla_measure_interval=interval)
+        return QCCDCompiler(arch, config=cfg).compile(dag, dict(initial))
+
+    # interval=2: MEASURE 2 回 → CoolOp は 2 回目の直後の 1 個だけ
+    result = compile_with(2)
+    flat = result.flat_ops
+    cools = [(i, op) for i, op in enumerate(flat) if isinstance(op, CoolOp)]
+    assert len(cools) == 1, cools
+    i, op = cools[0]
+    assert op.duration_us == 1000.0
+    assert isinstance(flat[i - 1], MeasureOp)
+    n_meas_before = sum(1 for o in flat[:i] if isinstance(o, MeasureOp))
+    assert n_meas_before == 2, "CoolOp は 2 回目の MEASURE の後にあるべき"
+
+    # interval=1 (デフォルト) は従来通り毎回
+    assert compile_with(1).stats["cools"] == 2
+
+    # interval=3: 測定 2 回では一度も冷却されない
+    assert compile_with(3).stats["cools"] == 0
+
+    # validation: 0 以下や非 int はエラー
+    try:
+        CompilerConfig(cool_ancilla_measure_interval=0).validate()
+        assert False, "interval=0 should raise"
+    except ValueError as e:
+        assert "cool_ancilla_measure_interval" in str(e)
+    print("test_cool_ancilla_measure_interval: OK")
+
+
 if __name__ == "__main__":
     test_sim_params_loading()
     test_parse_cool()
@@ -300,4 +352,5 @@ if __name__ == "__main__":
     test_cool_with_coolant_transport()
     test_auto_cool_threshold()
     test_cool_ancilla_after_measure()
+    test_cool_ancilla_measure_interval()
     print("\nAll cooling tests passed.")

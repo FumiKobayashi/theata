@@ -58,6 +58,10 @@ class CompilerConfig:
               CoolOp を挿入し、フォノンを残留値 (デフォルト 0) に戻す
             - 測定時はアンシラ以外が退避済みのため実質アンシラのみ冷える。
               基底状態への深い再冷却の想定 (例: 2000μs)
+        cool_ancilla_measure_interval: アンシラ測定後冷却の周期 (デフォルト 1)
+            - N を指定すると MEASURE N 回につき 1 回だけ冷却する
+              (1 = 毎回 = 従来動作)。カウンタは compile 単位でリセット
+            - cool_ancilla_after_measure_us が None のときは無視される
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
@@ -66,6 +70,7 @@ class CompilerConfig:
     eviction_strategy: str = "balanced"
     cool_threshold_transversal: Optional[float] = None
     cool_ancilla_after_measure_us: Optional[float] = None
+    cool_ancilla_measure_interval: int = 1
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -102,6 +107,11 @@ class CompilerConfig:
             raise ValueError(
                 f"cool_ancilla_after_measure_us must be > 0 or None, "
                 f"got {self.cool_ancilla_after_measure_us}")
+        if (not isinstance(self.cool_ancilla_measure_interval, int)
+                or self.cool_ancilla_measure_interval < 1):
+            raise ValueError(
+                f"cool_ancilla_measure_interval must be int >= 1, "
+                f"got {self.cool_ancilla_measure_interval}")
 
 
 # ==========================================
@@ -740,6 +750,8 @@ class MovementPlanner:
             self._reorder_optimizer = MemoryReorderOptimizer(architecture)
         # Interleave用: MS gate後にスタビライザを切り替える
         self._last_ms_stabilizer: Optional[int] = None
+        # アンシラ測定後冷却の周期カウンタ (MEASURE イベント数)
+        self._measures_since_cool: int = 0
         self._preferred_stabilizer: Optional[int] = None
         # 複数 LIZ 用: ancilla_id -> liz_zone_id の partition（None なら単一 LIZ 互換動作）
         self.partition: Optional[StabilizerPartition] = None
@@ -974,7 +986,9 @@ class MovementPlanner:
         ops.append(batch_measure)
 
         # アンシラ測定後冷却: バッチ測定直後に LIZ 上の全アンシラを再冷却
-        if self.config.cool_ancilla_after_measure_us is not None:
+        # (バッチ測定 1 回 = MEASURE イベント 1 回として周期カウント)
+        if (self.config.cool_ancilla_after_measure_us is not None
+                and self._post_measure_cool_due()):
             state.cool_chain(target_liz)
             ops.append(CoolOp(
                 zone_id=target_liz,
@@ -1090,9 +1104,23 @@ class MovementPlanner:
         dur = self.config.cool_ancilla_after_measure_us
         if dur is None or not isinstance(op, MeasureOp) or not op.targets:
             return None
+        if not self._post_measure_cool_due():
+            return None
         zone = state.locate(op.targets[0])
         state.cool_chain(zone)
         return CoolOp(zone_id=zone, duration_us=dur)
+
+    def _post_measure_cool_due(self) -> bool:
+        """アンシラ測定後冷却の周期判定 (cool_ancilla_measure_interval)。
+
+        MEASURE イベントごとに呼ばれる前提でカウンタを進め、
+        interval 回に 1 回だけ True を返す。
+        """
+        self._measures_since_cool += 1
+        if self._measures_since_cool < self.config.cool_ancilla_measure_interval:
+            return False
+        self._measures_since_cool = 0
+        return True
 
     def _annotate_gate(self, op: Operation, state: QCCDState) -> Operation:
         """GateOp/ResetOp/MeasureOpにzone_idを付与した新しいオペレーションを返す"""
