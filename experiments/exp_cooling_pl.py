@@ -145,6 +145,13 @@ def main():
     ap.add_argument('--ancilla-cool-intervals', type=int, nargs='+', default=[1],
                     help='アンシラ測定後冷却の周期リスト (例: 1 2)。'
                          '周期ごとに 1 arm 追加 (--ancilla-cool-us 指定時のみ有効)')
+    ap.add_argument('--merge-cool-threshold', type=float, nargs='+',
+                    default=None,
+                    help='merge 平均化冷却の memory チェーン平均 transversal '
+                         '閾値 (例: 1.5 3.0 → 閾値ごとに 1 arm)。MEASURE 後に'
+                         '冷アンシラを memory へ合流させて平均化で冷やし LIZ へ'
+                         '戻す。省略で arm なし '
+                         '(--ancilla-cool-us 指定時はアンシラ冷却込みの arm)')
     ap.add_argument('--cool-us', type=float, default=None,
                     help='閾値冷却 1 回の時間 μs (TimeParameters.cool を上書き、'
                          'デフォルト 400)')
@@ -176,6 +183,14 @@ def main():
     if args.threshold is not None:
         arms.append((f"thr@{args.threshold:g}/{cool_us:g}us",
                      {'cool_threshold_transversal': args.threshold}))
+    if args.merge_cool_threshold is not None:
+        for thr in args.merge_cool_threshold:
+            kw = {'merge_cool_threshold_transversal': thr}
+            label = f"merge@{thr:g}"
+            if args.ancilla_cool_us is not None:
+                kw['cool_ancilla_after_measure_us'] = args.ancilla_cool_us
+                label = f"merge@{thr:g}+anc"
+            arms.append((label, kw))
 
     rows = [run_arm(label, kw, args.rounds, args.shots, args.seed, params, tp=tp,
                     warn_on_clip=not args.quiet_clip)
