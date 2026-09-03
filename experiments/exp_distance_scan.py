@@ -72,7 +72,8 @@ def _compile_round(circuit_name, initial_placement, arch, initial_zone_contents=
 
 
 def build_noisy_circuit(forward, reverse, rounds, observable, mode='lumped',
-                        override_n_bar=None, phonon_scale=1.0):
+                        override_n_bar=None, phonon_scale=1.0,
+                        warn_on_clip=True):
     fwd_mod = __import__(forward)
     half = (len(fwd_mod.DATA_QUBITS) + 1) // 2
     mem_cap = max(20, half + len(fwd_mod.ANCILLA_QUBITS) + 4)
@@ -103,7 +104,8 @@ def build_noisy_circuit(forward, reverse, rounds, observable, mode='lumped',
     # override_n_bar が指定されていれば全 MS で固定値 (= heating 寄与 0)
     pauli_rates = phonon_to_pauli_lookup_rates(
         all_phonon_gates, PAULI_LOOKUP, mode=LOOKUP_MODE,
-        override_n_bar=override_n_bar, phonon_scale=phonon_scale)
+        override_n_bar=override_n_bar, phonon_scale=phonon_scale,
+        warn_on_clip=warn_on_clip)
     noise_params = default_noise_params()
     noisy = inject_noise_approach_b(circuit, pauli_rates, noise_params)
     noisy = inject_transport_dephasing(noisy, results, noise_params)
@@ -141,6 +143,9 @@ def main():
                         help='Multiplier on transversal phonon at each MS '
                              '(1.0 = no scaling, 0.5 = half heating, etc.). '
                              '--no-heating で上書きされる。')
+    parser.add_argument('--quiet-clip', action='store_true',
+                        help='lookup table 上限超過の per-gate 警告を抑制し、'
+                             '距離ごとの 1 行サマリだけ表示する')
     args = parser.parse_args()
 
     override_n_bar = 0.01 if args.no_heating else None
@@ -180,7 +185,8 @@ def main():
         print(f"=== d={d} ({fwd} / {rev}, observable={obs}) ===")
         noisy, results = build_noisy_circuit(
             fwd, rev, args.rounds, obs,
-            override_n_bar=override_n_bar, phonon_scale=phonon_scale)
+            override_n_bar=override_n_bar, phonon_scale=phonon_scale,
+            warn_on_clip=not args.quiet_clip)
         # Quick info
         n_qubits = noisy.num_qubits
         n_inst = sum(1 for _ in noisy)

@@ -270,17 +270,75 @@ def generate_stabilizer_block(stab_type, data_qubits, ancilla):
     return lines
 
 
-def generate_circuit(d, n_ancillas=1, reverse=False):
-    """完全な回路文字列を生成
+def stabilizer_cnot_orders(d):
+    """support (frozenset) -> (type, hook-error 回避の CNOT 順 data list)。
+
+    表面符号の各生成元について、`get_stabilizers` が定める既定の CNOT 順
+    (X: NW->NE->SW->SE, Z: NE->SE->NW->SW) を support から引くための辞書。
+    """
+    return {frozenset(dq): (stype, list(dq)) for stype, dq, _ in get_stabilizers(d)}
+
+
+def resolve_cnot_order(d, ordered, cnot_order="surface"):
+    """順序付きスタビライザ列の各要素に CNOT 順を与えて正規化する。
+
+    Args:
+        ordered: [(stype, data_qubits[, pos]), ...] スタビライザの測定順序。
+            外部 (配置最適化ライブラリ等) から受け取る想定。
+        cnot_order:
+            "surface"  = data_qubits を support として扱い、表面符号の
+                         hook-error 回避順 (`stabilizer_cnot_orders`) で埋める。
+                         表面符号のみを対象にする場合はこれで十分。
+            "explicit" = data_qubits の並びをそのまま CNOT 順として使う。
+                         一般符号に拡張する場合は呼び出し側が X/Z ごとの
+                         CNOT 順を明示して渡す。
+
+    Returns:
+        [(stype, cnot_ordered_data_qubits, pos), ...] (pos が無ければ None)
+    """
+    if cnot_order not in ("surface", "explicit"):
+        raise ValueError(f"cnot_order must be 'surface' or 'explicit', got {cnot_order!r}")
+    table = stabilizer_cnot_orders(d) if cnot_order == "surface" else None
+    resolved = []
+    for item in ordered:
+        if len(item) == 2:
+            stype, dqubits = item
+            pos = None
+        else:
+            stype, dqubits, pos = item[0], item[1], item[2]
+        if cnot_order == "surface":
+            key = frozenset(int(q) for q in dqubits)
+            if key not in table:
+                raise ValueError(
+                    f"support {sorted(key)} is not a stabilizer of the d={d} "
+                    f"rotated surface code")
+            t_ref, cnot_list = table[key]
+            if t_ref != stype:
+                raise ValueError(
+                    f"support {sorted(key)} is {t_ref}-type, got {stype!r}")
+            resolved.append((stype, list(cnot_list), pos))
+        else:
+            resolved.append((stype, [int(q) for q in dqubits], pos))
+    return resolved
+
+
+def generate_circuit_from_order(d, ordered, n_ancillas=1, reverse=False,
+                                cnot_order="surface"):
+    """与えられたスタビライザ測定順序から回路文字列を生成する。
 
     Args:
         d: 符号距離
+        ordered: [(stype, data_qubits[, pos]), ...] 測定順序 (resolve_cnot_order 参照)
         n_ancillas: 使用するアンシラ数 (1 or 2)
-        reverse: True の場合、スタビライザ順を逆にし、各スタビライザ内のCNOT順も逆にする
+        reverse: True の場合、スタビライザ順を逆にし、各スタビライザ内の
+            CNOT 順も逆にする (複数ラウンドの交互走査用)
+        cnot_order: "surface" (support から規則で埋める) / "explicit" (与えた順)
+
+    Returns:
+        (circuit_str, ordered_resolved, ancilla_ids)
     """
     n_data = d * d
-    stabilizers = get_stabilizers(d)
-    ordered = get_snake_order(stabilizers, d)
+    ordered = resolve_cnot_order(d, ordered, cnot_order=cnot_order)
 
     if reverse:
         # スタビライザ順を逆 + 各スタビライザ内のCNOT順（data_qubits）も逆
@@ -326,6 +384,38 @@ def generate_circuit(d, n_ancillas=1, reverse=False):
             lines.append(f"RESET {ancilla}")
 
     return "\n".join(lines), ordered, ancilla_ids
+
+
+def generate_circuit(d, n_ancillas=1, reverse=False):
+    """蛇行順 (get_snake_order) で完全な回路文字列を生成 (従来 API)。
+
+    蛇行順は走査方向に応じて Z の CNOT 順を切り替えた明示的な順序を持つため
+    cnot_order="explicit" で generate_circuit_from_order に渡す。
+    """
+    ordered = get_snake_order(get_stabilizers(d), d)
+    return generate_circuit_from_order(d, ordered, n_ancillas=n_ancillas,
+                                       reverse=reverse, cnot_order="explicit")
+
+
+def make_circuit_module(name, d, circuit_str, ancilla_ids, ordered=None,
+                        register=True):
+    """回路文字列から d5_reuse1.py 相当のインメモリモジュールを作る。
+
+    既存パイプライン (exp_cooling_pl / exp_distance_scan 等) は回路を
+    `__import__(name)` で読むため、sys.modules に登録すればファイルを
+    書き出さずに同じ経路でコンパイルできる。
+    """
+    import sys as _sys
+    import types as _types
+    mod = _types.ModuleType(name)
+    mod.QUBIT_COUNT = d * d + len(ancilla_ids)
+    mod.DATA_QUBITS = list(range(d * d))
+    mod.ANCILLA_QUBITS = list(ancilla_ids)
+    mod.CIRCUIT = circuit_str
+    mod.ORDERED = ordered
+    if register:
+        _sys.modules[name] = mod
+    return mod
 
 
 def _grid_str(d):

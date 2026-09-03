@@ -37,6 +37,7 @@ from qccd_compiler import QCCDArchitecture, QCCDCompiler, CompilerConfig
 from stim_recompiler import recompile_multi_round
 from parallel_estimator import ParallelEstimator
 from ion_timeline import gaps_from_compile_results
+from sim_params import load_time_parameters
 from pauli_lookup import PauliErrorLookup
 from exp_noise_injection import (
     phonon_to_pauli_lookup_rates,
@@ -88,11 +89,12 @@ def compile_rounds(cfg_kwargs, rounds):
     return results
 
 
-def run_arm(label, cfg_kwargs, rounds, shots, seed, params):
+def run_arm(label, cfg_kwargs, rounds, shots, seed, params, tp=None,
+            warn_on_clip=True):
     results = compile_rounds(cfg_kwargs, rounds)
 
     n_cools = sum(cr.stats.get('cools', 0) for cr in results)
-    pe = ParallelEstimator()
+    pe = ParallelEstimator(tp) if tp else ParallelEstimator()
     round_ms = [pe.estimate(cr.timesteps).total_time / 1000 for cr in results]
 
     all_gates = []
@@ -106,9 +108,9 @@ def run_arm(label, cfg_kwargs, rounds, shots, seed, params):
         200, separate_observables=True)
     assert det.sum() == 0 and obs.sum() == 0, "noiseless detectors non-zero"
 
-    anchor_ops, gaps = gaps_from_compile_results(results)
+    anchor_ops, gaps = gaps_from_compile_results(results, time_params=tp)
     pauli_rates = phonon_to_pauli_lookup_rates(
-        all_gates, PAULI_LOOKUP, mode=LOOKUP_MODE)
+        all_gates, PAULI_LOOKUP, mode=LOOKUP_MODE, warn_on_clip=warn_on_clip)
     noisy = inject_noise_approach_b(circuit, pauli_rates, params,
                                     include_idle=False)
     noisy = inject_per_ion_idle(noisy, anchor_ops, gaps, params)
@@ -140,6 +142,22 @@ def main():
                     help='MS 直前閾値冷却の transversal 閾値 (例: 5.0)。省略で arm なし')
     ap.add_argument('--ancilla-cool-us', type=float, default=None,
                     help='アンシラ測定後冷却の duration μs (例: 2000)。省略で arm なし')
+    ap.add_argument('--ancilla-cool-intervals', type=int, nargs='+', default=[1],
+                    help='アンシラ測定後冷却の周期リスト (例: 1 2)。'
+                         '周期ごとに 1 arm 追加 (--ancilla-cool-us 指定時のみ有効)')
+    ap.add_argument('--merge-cool-threshold', type=float, nargs='+',
+                    default=None,
+                    help='merge 平均化冷却の memory チェーン平均 transversal '
+                         '閾値 (例: 1.5 3.0 → 閾値ごとに 1 arm)。MEASURE 後に'
+                         '冷アンシラを memory へ合流させて平均化で冷やし LIZ へ'
+                         '戻す。省略で arm なし '
+                         '(--ancilla-cool-us 指定時はアンシラ冷却込みの arm)')
+    ap.add_argument('--cool-us', type=float, default=None,
+                    help='閾値冷却 1 回の時間 μs (TimeParameters.cool を上書き、'
+                         'デフォルト 400)')
+    ap.add_argument('--quiet-clip', action='store_true',
+                    help='lookup table 上限超過の per-gate 警告を抑制し、'
+                         'arm ごとの 1 行サマリだけ表示する')
     ap.add_argument('--rounds', type=int, default=3)
     ap.add_argument('--shots', type=int, default=50_000)
     ap.add_argument('--seed', type=int, default=2026)
@@ -147,17 +165,35 @@ def main():
     args = ap.parse_args()
 
     params = default_noise_params()
-    print(f"1-LIZ d=5, rounds={args.rounds}, shots={args.shots}")
+    tp = (load_time_parameters(overrides={'cool': args.cool_us})
+          if args.cool_us is not None else None)
+    cool_us = args.cool_us if args.cool_us is not None else 400.0
+    print(f"1-LIZ d=5, rounds={args.rounds}, shots={args.shots}, "
+          f"threshold-cool duration={cool_us:g}us")
 
     arms = [("no-cool", {})]
     if args.ancilla_cool_us is not None:
-        arms.append((f"anc@{args.ancilla_cool_us:g}us",
-                     {'cool_ancilla_after_measure_us': args.ancilla_cool_us}))
+        for k in args.ancilla_cool_intervals:
+            label = (f"anc@{args.ancilla_cool_us:g}us" if k == 1
+                     else f"anc@{args.ancilla_cool_us:g}us/every{k}")
+            kw = {'cool_ancilla_after_measure_us': args.ancilla_cool_us}
+            if k != 1:
+                kw['cool_ancilla_measure_interval'] = k
+            arms.append((label, kw))
     if args.threshold is not None:
-        arms.append((f"thr@{args.threshold:g}",
+        arms.append((f"thr@{args.threshold:g}/{cool_us:g}us",
                      {'cool_threshold_transversal': args.threshold}))
+    if args.merge_cool_threshold is not None:
+        for thr in args.merge_cool_threshold:
+            kw = {'merge_cool_threshold_transversal': thr}
+            label = f"merge@{thr:g}"
+            if args.ancilla_cool_us is not None:
+                kw['cool_ancilla_after_measure_us'] = args.ancilla_cool_us
+                label = f"merge@{thr:g}+anc"
+            arms.append((label, kw))
 
-    rows = [run_arm(label, kw, args.rounds, args.shots, args.seed, params)
+    rows = [run_arm(label, kw, args.rounds, args.shots, args.seed, params, tp=tp,
+                    warn_on_clip=not args.quiet_clip)
             for label, kw in arms]
 
     print(f"\n{'='*72}")
@@ -173,7 +209,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     tag = "_".join(label for label, _ in arms[1:]) or "baseline"
-    tag = tag.replace('@', '').replace('.', 'p')
+    tag = tag.replace('@', '').replace('.', 'p').replace('/', '-')
     path = out / f"pl_cooling_d5_{tag}_r{args.rounds}_{stamp}.json"
     path.write_text(json.dumps({
         'rounds': args.rounds, 'shots': args.shots, 'seed': args.seed,

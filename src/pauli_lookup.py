@@ -75,8 +75,13 @@ class PauliErrorLookup:
     def n_bar_range(self) -> tuple:
         return (self._n_min, self._n_max)
 
-    def select_n_bar(self, n_bar: float, mode: str = "strict") -> float:
-        """与えられた n_bar に対し、 mode に従って table のキー値を 1 つ選ぶ。"""
+    def select_n_bar(self, n_bar: float, mode: str = "strict",
+                     warn_on_clip: bool = True) -> float:
+        """与えられた n_bar に対し、 mode に従って table のキー値を 1 つ選ぶ。
+
+        warn_on_clip=False で table 上限超過時の RuntimeWarning を抑制する
+        (クリップ動作自体は変わらない)。
+        """
         if mode not in self.SUPPORTED_MODES:
             raise ValueError(
                 f"Unknown mode {mode!r}; supported: {self.SUPPORTED_MODES}"
@@ -86,7 +91,7 @@ class PauliErrorLookup:
         if n_bar <= self._n_min:
             return self._n_min
         if n_bar >= self._n_max:
-            if n_bar > self._n_max:
+            if n_bar > self._n_max and warn_on_clip:
                 warnings.warn(
                     f"n_bar={n_bar:.4f} exceeds lookup table max {self._n_max}; "
                     f"clipping to {self._n_max}",
@@ -116,6 +121,7 @@ class PauliErrorLookup:
         self,
         n_bar: float,
         mode: str = "strict",
+        warn_on_clip: bool = True,
     ) -> List[float]:
         """n_bar に対応する 15 Pauli 確率を Stim PAULI_CHANNEL_2 順で返す。
 
@@ -123,7 +129,7 @@ class PauliErrorLookup:
             [p_IX, p_IY, p_IZ, p_XI, p_XX, p_XY, p_XZ,
              p_YI, p_YX, p_YY, p_YZ, p_ZI, p_ZX, p_ZY, p_ZZ]
         """
-        selected_n = self.select_n_bar(n_bar, mode=mode)
+        selected_n = self.select_n_bar(n_bar, mode=mode, warn_on_clip=warn_on_clip)
         row = self._table[selected_n]
         return [row[p] for p in STIM_PAULI_ORDER]
 
@@ -131,9 +137,10 @@ class PauliErrorLookup:
         self,
         n_bar: float,
         mode: str = "strict",
+        warn_on_clip: bool = True,
     ) -> Dict[str, float]:
         """同じ lookup を dict 形式で返す (II も含む)。デバッグ・確認用。"""
-        selected_n = self.select_n_bar(n_bar, mode=mode)
+        selected_n = self.select_n_bar(n_bar, mode=mode, warn_on_clip=warn_on_clip)
         return dict(self._table[selected_n])
 
     def __repr__(self) -> str:

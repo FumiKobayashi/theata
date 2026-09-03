@@ -58,6 +58,22 @@ class CompilerConfig:
               CoolOp を挿入し、フォノンを残留値 (デフォルト 0) に戻す
             - 測定時はアンシラ以外が退避済みのため実質アンシラのみ冷える。
               基底状態への深い再冷却の想定 (例: 2000μs)
+        cool_ancilla_measure_interval: アンシラ測定後冷却の周期 (デフォルト 1)
+            - N を指定すると MEASURE N 回につき 1 回だけ冷却する
+              (1 = 毎回 = 従来動作)。カウンタは compile 単位でリセット
+            - cool_ancilla_after_measure_us が None のときは無視される
+        merge_cool_threshold_transversal: merge 平均化冷却 (None で無効)
+            - 各 MEASURE 直後 (アンシラが LIZ に居る時点) に、LIZ に隣接する
+              memory zone (間に他の LIZ を挟まないもの) のチェーン平均
+              transversal フォノンがこの値を超えていたら:
+              直接冷却したアンシラを split→shuttle→merge で当該 memory へ
+              合流させ、merge のフォノン平均化でチェーンを冷やし、LIZ へ戻す
+            - 左右両方が閾値超なら両側に順に行う。アンシラの冷却命令は
+              側ごとの合流前 + 帰還後の再冷却 (吸った熱を捨て、次の
+              スタビライザ測定を温まったアンシラで始めない) に挿入される
+            - 1 回の合流で除去できるのは超過分の約 1/(k+1) (k = チェーン長)
+              のため、閾値超が続く限り以降の MEASURE イベントでも繰り返し
+              発動する
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
@@ -66,6 +82,8 @@ class CompilerConfig:
     eviction_strategy: str = "balanced"
     cool_threshold_transversal: Optional[float] = None
     cool_ancilla_after_measure_us: Optional[float] = None
+    cool_ancilla_measure_interval: int = 1
+    merge_cool_threshold_transversal: Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -102,6 +120,16 @@ class CompilerConfig:
             raise ValueError(
                 f"cool_ancilla_after_measure_us must be > 0 or None, "
                 f"got {self.cool_ancilla_after_measure_us}")
+        if (not isinstance(self.cool_ancilla_measure_interval, int)
+                or self.cool_ancilla_measure_interval < 1):
+            raise ValueError(
+                f"cool_ancilla_measure_interval must be int >= 1, "
+                f"got {self.cool_ancilla_measure_interval}")
+        if (self.merge_cool_threshold_transversal is not None
+                and self.merge_cool_threshold_transversal < 0):
+            raise ValueError(
+                f"merge_cool_threshold_transversal must be >= 0 or None, "
+                f"got {self.merge_cool_threshold_transversal}")
 
 
 # ==========================================
@@ -740,6 +768,8 @@ class MovementPlanner:
             self._reorder_optimizer = MemoryReorderOptimizer(architecture)
         # Interleave用: MS gate後にスタビライザを切り替える
         self._last_ms_stabilizer: Optional[int] = None
+        # アンシラ測定後冷却の周期カウンタ (MEASURE イベント数)
+        self._measures_since_cool: int = 0
         self._preferred_stabilizer: Optional[int] = None
         # 複数 LIZ 用: ancilla_id -> liz_zone_id の partition（None なら単一 LIZ 互換動作）
         self.partition: Optional[StabilizerPartition] = None
@@ -898,6 +928,10 @@ class MovementPlanner:
                     if post_cool is not None:
                         ops.append(post_cool)
 
+                    # merge 平均化冷却: memory チェーンが閾値超なら
+                    # 冷アンシラを合流させて平均化で冷やし、LIZ へ戻す
+                    ops.extend(self._maybe_merge_cool_memory(node.operation, state))
+
                     # Interleave: MS gate実行後にスタビライザを切り替え
                     if self.config.interleave and isinstance(node.operation, GateOp) and node.operation.type == 'MS':
                         current_stab = node.stabilizer_id
@@ -974,11 +1008,16 @@ class MovementPlanner:
         ops.append(batch_measure)
 
         # アンシラ測定後冷却: バッチ測定直後に LIZ 上の全アンシラを再冷却
-        if self.config.cool_ancilla_after_measure_us is not None:
+        # (バッチ測定 1 回 = MEASURE イベント 1 回として周期カウント)
+        if (self.config.cool_ancilla_after_measure_us is not None
+                and self._post_measure_cool_due()):
             state.cool_chain(target_liz)
             ops.append(CoolOp(
                 zone_id=target_liz,
                 duration_us=self.config.cool_ancilla_after_measure_us))
+
+        # merge 平均化冷却 (バッチ測定直後・RESET 前)
+        ops.extend(self._maybe_merge_cool_memory(batch_measure, state))
 
         # バッチReset: MEASURE直後に無条件で全アンシラをRESET
         # アンシラはまだLIZ上にいるので搬送不要
@@ -1090,9 +1129,92 @@ class MovementPlanner:
         dur = self.config.cool_ancilla_after_measure_us
         if dur is None or not isinstance(op, MeasureOp) or not op.targets:
             return None
+        if not self._post_measure_cool_due():
+            return None
         zone = state.locate(op.targets[0])
         state.cool_chain(zone)
         return CoolOp(zone_id=zone, duration_us=dur)
+
+    def _post_measure_cool_due(self) -> bool:
+        """アンシラ測定後冷却の周期判定 (cool_ancilla_measure_interval)。
+
+        MEASURE イベントごとに呼ばれる前提でカウンタを進め、
+        interval 回に 1 回だけ True を返す。
+        """
+        self._measures_since_cool += 1
+        if self._measures_since_cool < self.config.cool_ancilla_measure_interval:
+            return False
+        self._measures_since_cool = 0
+        return True
+
+    def _maybe_merge_cool_memory(self, op: Operation,
+                                 state: QCCDState) -> List[Operation]:
+        """merge 平均化冷却 (merge_cool_threshold_transversal ポリシー)。
+
+        MEASURE 直後 (非対象イオン退避済みでアンシラが LIZ に居る時点) に、
+        LIZ に隣接する memory zone のチェーン平均 transversal フォノンを見て、
+        閾値を超えていたら次の操作列を挿入する:
+
+          1. アンシラを直接冷却 (残留値まで。既に残留値以下ならスキップ)
+          2. アンシラを memory へ搬送・合流
+             (merge_chains のフォノン平均化でチェーン全体が冷える)
+          3. アンシラを LIZ へ戻す
+             (合流直後は LIZ 側の端に居るため swap は発生しない)
+
+        左右両方の memory が閾値超なら両側に順に行う。2 側目の前には
+        1 側目の合流で温まったアンシラの再冷却が入るため、両側実行時は
+        アンシラの冷却命令が 2 回挿入される。
+
+        1 回の合流で除去できる熱は超過分の約 1/(k+1) (k = チェーン長) で、
+        transversal の到達下限は残留値 + 輸送コスト
+        (split + shuttle + merge の増分) で決まる。閾値超が続く限り、
+        以降の MEASURE イベントでも繰り返し発動する。
+
+        multi-LIZ 安全性: 経路上に他の LIZ を挟む memory zone は対象外
+        (pass-through を構成的に回避)。
+        """
+        thr = self.config.merge_cool_threshold_transversal
+        if thr is None or not isinstance(op, MeasureOp) or not op.targets:
+            return []
+        if not state.phonon_params:
+            return []
+        ancilla = op.targets[0]
+        liz = state.locate(ancilla)
+        if not self.architecture.is_liz(liz):
+            return []
+
+        res_ax = state.phonon_params.get('cool_residual_axial', 0.0)
+        res_tr = state.phonon_params.get('cool_residual_transversal', 0.0)
+        cool_dur = self.config.cool_ancilla_after_measure_us
+
+        ops: List[Operation] = []
+        for mem in self.architecture.get_memory_zones():
+            path = self.architecture.get_path(liz, mem.id)
+            if any(self.architecture.is_liz(w) and w != liz for w in path):
+                continue  # 他 LIZ の先にある memory は対象外
+            chain = state.zone_contents.get(mem.id, [])
+            if not chain:
+                continue
+            mean_tr = sum(state.phonon_transversal.get(i, 0.0)
+                          for i in chain) / len(chain)
+            if mean_tr <= thr:
+                continue
+            # 1) アンシラを冷却 (前の側への合流で温まっていれば再冷却)
+            if (state.phonon_transversal.get(ancilla, 0.0) > res_tr + 1e-12
+                    or state.phonon_axial.get(ancilla, 0.0) > res_ax + 1e-12):
+                state.cool_chain(liz)
+                ops.append(CoolOp(zone_id=liz, duration_us=cool_dur))
+            # 2) memory へ合流 (merge の平均化で memory チェーンが冷える)
+            ops.extend(self._move_ion_to_zone(ancilla, mem.id, state))
+            # 3) LIZ へ帰還
+            ops.extend(self._move_ion_to_zone(ancilla, liz, state))
+        # 4) 熱シャトルとして吸った熱を捨てる: 最後の合流で温まったまま
+        #    次のスタビライザ測定に使われないよう、帰還後に再冷却する
+        if ops and (state.phonon_transversal.get(ancilla, 0.0) > res_tr + 1e-12
+                    or state.phonon_axial.get(ancilla, 0.0) > res_ax + 1e-12):
+            state.cool_chain(liz)
+            ops.append(CoolOp(zone_id=liz, duration_us=cool_dur))
+        return ops
 
     def _annotate_gate(self, op: Operation, state: QCCDState) -> Operation:
         """GateOp/ResetOp/MeasureOpにzone_idを付与した新しいオペレーションを返す"""

@@ -292,6 +292,179 @@ def test_cool_ancilla_after_measure():
     print("test_cool_ancilla_after_measure: OK")
 
 
+def test_cool_ancilla_measure_interval():
+    """アンシラ測定後冷却の周期指定: MEASURE N 回につき CoolOp 1 個"""
+    from ast_def import MeasureOp
+    from qccd_compiler import CompilerConfig
+
+    code = """
+    QUBIT 0 AT (1, 0)
+    QUBIT 1 AT (1, 1)
+    QUBIT 9 AT (5, 0)
+
+    RESET 9
+    MS 0 9 0.25
+    MEASURE 9
+    RESET 9
+    MS 1 9 0.25
+    MEASURE 9
+    """
+    arch = QCCDArchitecture.simple_mlm(liz_capacity=4)
+    initial = {0: 1, 1: 1, 9: 5}
+
+    def compile_with(interval):
+        dag = DAGBuilder(parse(code)).build()
+        cfg = CompilerConfig(cool_ancilla_after_measure_us=1000.0,
+                             cool_ancilla_measure_interval=interval)
+        return QCCDCompiler(arch, config=cfg).compile(dag, dict(initial))
+
+    # interval=2: MEASURE 2 回 → CoolOp は 2 回目の直後の 1 個だけ
+    result = compile_with(2)
+    flat = result.flat_ops
+    cools = [(i, op) for i, op in enumerate(flat) if isinstance(op, CoolOp)]
+    assert len(cools) == 1, cools
+    i, op = cools[0]
+    assert op.duration_us == 1000.0
+    assert isinstance(flat[i - 1], MeasureOp)
+    n_meas_before = sum(1 for o in flat[:i] if isinstance(o, MeasureOp))
+    assert n_meas_before == 2, "CoolOp は 2 回目の MEASURE の後にあるべき"
+
+    # interval=1 (デフォルト) は従来通り毎回
+    assert compile_with(1).stats["cools"] == 2
+
+    # interval=3: 測定 2 回では一度も冷却されない
+    assert compile_with(3).stats["cools"] == 0
+
+    # validation: 0 以下や非 int はエラー
+    try:
+        CompilerConfig(cool_ancilla_measure_interval=0).validate()
+        assert False, "interval=0 should raise"
+    except ValueError as e:
+        assert "cool_ancilla_measure_interval" in str(e)
+    print("test_cool_ancilla_measure_interval: OK")
+
+
+def test_merge_cool_memory_unit():
+    """merge 平均化冷却の単体: 冷アンシラの合流で memory チェーンが冷える"""
+    from ast_def import MeasureOp, SplitOp, ShuttleOp, MergeOp
+    from qccd_compiler import CompilerConfig, MovementPlanner
+
+    arch = QCCDArchitecture.simple_mlm(liz_capacity=4)
+    state = QCCDState(architecture=arch)
+    state.phonon_params = phonon_params_from()
+
+    # memory 1: 熱いデータチェーン [0, 1] (tr=3.0)
+    # memory 5: 冷たいチェーン [2, 3] (tr=0.1、閾値以下 → 対象外)
+    # LIZ 3: 測定直後のアンシラ 9 (温まっている → 冷却命令が入る)
+    for ion, zone, tr, ax in [(0, 1, 3.0, 50.0), (1, 1, 3.0, 50.0),
+                              (2, 5, 0.1, 1.0), (3, 5, 0.1, 1.0),
+                              (9, 3, 0.5, 5.0)]:
+        if arch.is_memory(zone):
+            state.place_ion(ion, zone)
+        else:  # LIZ への直接配置 (測定直後の状況を再現)
+            state.zone_contents.setdefault(zone, []).append(ion)
+            state.ion_locations[ion] = zone
+        state.phonon_transversal[ion] = tr
+        state.phonon_axial[ion] = ax
+
+    planner = MovementPlanner(
+        arch, CompilerConfig(merge_cool_threshold_transversal=1.0))
+    ops = planner._maybe_merge_cool_memory(
+        MeasureOp(targets=[9], zone_id=3), state)
+
+    # 冷却 2 回 (合流前の直接冷却 + 帰還後の再冷却) + 往復搬送
+    cools = [op for op in ops if isinstance(op, CoolOp)]
+    assert len(cools) == 2 and all(c.zone_id == 3 for c in cools)
+    assert isinstance(ops[0], CoolOp), "冷却が搬送より先"
+    assert isinstance(ops[-1], CoolOp), "帰還後に再冷却"
+    assert any(isinstance(op, SplitOp) for op in ops)
+    assert any(isinstance(op, ShuttleOp) for op in ops)
+    assert any(isinstance(op, MergeOp) for op in ops)
+
+    # アンシラは LIZ に帰還、memory 1 のデータ順は保存される
+    assert state.locate(9) == 3
+    assert state.zone_contents[1] == [0, 1]
+
+    # memory 1 は平均化で冷えている: (3+3+0.1)/3 + merge 0.05 ≈ 2.13
+    tr0 = state.phonon_transversal[0]
+    tr1 = state.phonon_transversal[1]
+    assert abs(tr0 - tr1) < 1e-9
+    assert 2.0 < tr0 < 2.2, f"expected ~2.13, got {tr0}"
+
+    # 閾値以下の memory 5 は手つかず
+    assert state.phonon_transversal[2] == 0.1
+    assert state.phonon_transversal[3] == 0.1
+    assert state.zone_contents[5] == [2, 3]
+
+    # 全 memory が閾値以下なら何も挿入しない
+    planner2 = MovementPlanner(
+        arch, CompilerConfig(merge_cool_threshold_transversal=10.0))
+    assert planner2._maybe_merge_cool_memory(
+        MeasureOp(targets=[9], zone_id=3), state) == []
+
+    # validation: 負の閾値はエラー
+    try:
+        CompilerConfig(merge_cool_threshold_transversal=-1.0).validate()
+        assert False, "negative threshold should raise"
+    except ValueError as e:
+        assert "merge_cool_threshold_transversal" in str(e)
+    print("test_merge_cool_memory_unit: OK")
+
+
+def test_merge_cool_integration():
+    """merge 平均化冷却の統合: MEASURE 後に往復搬送が入り validator を通る"""
+    from ast_def import MeasureOp, ShuttleOp
+    from qccd_compiler import CompilerConfig
+
+    code = """
+    QUBIT 0 AT (1, 0)
+    QUBIT 1 AT (1, 1)
+    QUBIT 9 AT (5, 0)
+
+    RESET 9
+    MS 0 9 0.25
+    MEASURE 9
+    """
+    arch = QCCDArchitecture.simple_mlm(liz_capacity=4)
+    initial = {0: 1, 1: 1, 9: 5}
+
+    # 極小閾値: 測定前の退避で温まった memory チェーンが必ず発動させる
+    dag = DAGBuilder(parse(code)).build()
+    cfg = CompilerConfig(merge_cool_threshold_transversal=0.01)
+    result = QCCDCompiler(arch, config=cfg).compile(dag, dict(initial))
+    flat = result.flat_ops
+
+    assert result.stats["cools"] >= 1
+    meas_idx = max(i for i, op in enumerate(flat) if isinstance(op, MeasureOp))
+    tail = flat[meas_idx + 1:]
+    # MEASURE 後: アンシラ 9 が memory へ行き、LIZ (3) へ戻る shuttle がある
+    mem_zones = {z.id for z in arch.get_memory_zones()}
+    visits = [op for op in tail if isinstance(op, ShuttleOp)
+              and op.target == 9 and op.dst.trap in mem_zones]
+    returns = [op for op in tail if isinstance(op, ShuttleOp)
+               and op.target == 9 and op.dst.trap == 3]
+    assert visits, "ancilla should visit a memory zone after MEASURE"
+    assert returns, "ancilla should return to the LIZ"
+    assert flat.index(returns[-1]) > flat.index(visits[0])
+    assert result.final_zone_contents.get(3) == [9]
+
+    # validator (sequential + parallel) を通る
+    v = Validator(arch).validate(flat, initial)
+    assert v.is_valid, v.summary()
+    pv = ParallelValidator(arch).validate(result.timesteps, initial)
+    assert pv.is_valid, pv.summary()
+
+    # 無効時 (None) は往復搬送なし
+    dag2 = DAGBuilder(parse(code)).build()
+    base = QCCDCompiler(arch, config=CompilerConfig()).compile(
+        dag2, dict(initial))
+    base_meas = max(i for i, op in enumerate(base.flat_ops)
+                    if isinstance(op, MeasureOp))
+    assert not any(isinstance(op, ShuttleOp) and op.target == 9
+                   for op in base.flat_ops[base_meas + 1:])
+    print("test_merge_cool_integration: OK")
+
+
 if __name__ == "__main__":
     test_sim_params_loading()
     test_parse_cool()
@@ -300,4 +473,7 @@ if __name__ == "__main__":
     test_cool_with_coolant_transport()
     test_auto_cool_threshold()
     test_cool_ancilla_after_measure()
+    test_cool_ancilla_measure_interval()
+    test_merge_cool_memory_unit()
+    test_merge_cool_integration()
     print("\nAll cooling tests passed.")
