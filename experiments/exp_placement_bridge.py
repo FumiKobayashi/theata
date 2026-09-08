@@ -11,7 +11,14 @@ H_X/H_Z は circuits/d5_generator.get_stabilizers から直接構築する
   pi    : 各 π に整合する測定順序 (support の π 上の最小位置でソート) で
           回路を生成し直す (generate_circuit_from_order、CNOT 順は表面符号の
           hook-error 回避規則)。配置 + 順序の対等な比較
-  both  : 両方
+          ⚠ この規則は「チェーン左端 = zone 1 の最深部」から走査するため
+          zone レイアウトに不利 (9/1 洗い出し)。歴史的比較用に残す
+  liz   : LIZ 基準の貪欲順序 (9/1 の逆向き貪欲法)。各生成元を「最深メンバー
+          の LIZ 端からの深さ」で浅い順に、左右 zone 交互に測る。
+          各 π について (a) π 配置 + liz 順序、(b) liz 順序回路に greedy_alt
+          再配置 (= π を順序生成器として使う本命パイプライン) を評価
+  both  : snake + pi
+  all   : snake + pi + liz
 
 ortools / ldpc が未インストールでもヒューリスティック配置は動くよう、
 import 失敗時は stub を差し込む (ExactSpanPlacement / optimal_route は不可)。
@@ -104,6 +111,62 @@ def pi_schedule_modules(d, order, tag):
     return fwd_name, rev_name
 
 
+def liz_greedy_order(d, order, alternate=True):
+    """LIZ 基準の貪欲順序規則 (9/1 の逆向き貪欲法)。
+
+    π (data の 1D 順序) を order_to_initial と同じ規則で 2 分したとき、
+    zone 1 の LIZ 側端 = π 位置 half-1、zone 5 の LIZ 側端 = π 位置 half。
+    depth(q) = q の LIZ 側端からの距離。各生成元 S のコストは最深メンバー
+    (LIFO 的な取り出しで退避回数を決めるのは最深メンバー — §3.2 spanL_max
+    が正の相関 +0.83 だった知見) とし、S を最深メンバーの側に帰属させて
+    「浅い生成元から」測る順序を返す。
+
+    alternate=True : 左右 zone 交互 (9/1 提案そのまま。9/3 実測で
+        走査の連続性を壊し大幅悪化 → 棄却)
+    alternate=False: 片側ずつ LIZ から外向きに走査 (lizseq)。連続性を
+        保ったまま浅い生成元から始める切り分け用変種
+    """
+    import d5_generator as gen
+    pos = {int(q): i for i, q in enumerate(order)}
+    half = len(order) // 2
+
+    def depth(q):
+        p = pos[q]
+        return (half - 1 - p) if p < half else (p - half)
+
+    stabs = [(t, sorted(dq)) for t, dq, _ in gen.get_stabilizers(d)]
+    sides = ([], [])  # 0: zone 1 (左半分), 1: zone 5 (右半分)
+    for s in stabs:
+        dq = s[1]
+        deepest = max(dq, key=depth)
+        key = (max(depth(q) for q in dq), sum(depth(q) for q in dq))
+        sides[0 if pos[deepest] < half else 1].append((key, s))
+    for b in sides:
+        b.sort(key=lambda x: x[0])
+    if not alternate:
+        return [s for b in sides for _, s in b]
+    ordered, idx = [], [0, 0]
+    turn = 0 if (sides[0] and (not sides[1] or sides[0][0][0] <= sides[1][0][0])) else 1
+    while idx[0] < len(sides[0]) or idx[1] < len(sides[1]):
+        if idx[turn] >= len(sides[turn]):
+            turn = 1 - turn
+        ordered.append(sides[turn][idx[turn]][1])
+        idx[turn] += 1
+        turn = 1 - turn
+    return ordered
+
+
+def order_schedule_modules(d, ordered, tag):
+    """生成元の測定順序 ordered から forward / reverse 回路をインメモリ生成。"""
+    import d5_generator as gen
+    fwd_str, resolved, anc = gen.generate_circuit_from_order(d, ordered, 1, reverse=False)
+    rev_str, _, _ = gen.generate_circuit_from_order(d, ordered, 1, reverse=True)
+    fwd_name, rev_name = f'_bridge_{tag}_fwd', f'_bridge_{tag}_rev'
+    gen.make_circuit_module(fwd_name, d, fwd_str, anc, resolved)
+    gen.make_circuit_module(rev_name, d, rev_str, anc)
+    return fwd_name, rev_name
+
+
 def evaluate(initial, d, rounds, fwd_name=None, rev_name=None):
     """本コンパイラを cost oracle として transport / 時間 / フォノンを返す。"""
     from qccd_parser import parse
@@ -173,7 +236,14 @@ def main():
     ap.add_argument('--distance', type=int, default=5)
     ap.add_argument('--rounds', type=int, default=3)
     ap.add_argument('--sa-iters', type=int, default=30000)
-    ap.add_argument('--schedule', choices=['snake', 'pi', 'both'], default='both')
+    ap.add_argument('--schedule',
+                    choices=['snake', 'pi', 'liz', 'lizseq', 'hrow', 'both', 'all'],
+                    default='both')
+    ap.add_argument('--family', choices=['default', 'boustro'], default='default',
+                    help='比較する配置戦略の族。boustro = 牛耕式の変種比較 '
+                         '(plain / 片端編み込み / 両端編み込み × 鏡映 2 向き)。'
+                         '符号構築の鏡映で市松位相と開始方向の噛み合いが変わり '
+                         'span の優劣が入れ替わるため両向きを明示 (9/3 知見)')
     ap.add_argument('--csv', default=None,
                     help='結果を CSV に書き出す (例: results/placement_bridge/run.csv)。'
                          'Excel でそのまま開ける (UTF-8 BOM 付き)')
@@ -203,21 +273,45 @@ def main():
                [q for q, z in init_ga.items() if q not in ancilla_ids and z == 5]
     p_ga = placement_from_order(order_ga)
 
-    strategies = [
-        ('sequential', SequentialPlacement()),
-        ('spectral', SpectralPlacement()),
-        ('minla_localsearch', LocalSearchMinLA(iterations=5000, seed=0)),
-        ('stabilizer_span_SA', StabilizerSpanPlacement(iterations=args.sa_iters, seed=0)),
-        ('qccd_aware_SA', QCCDAwarePlacement(iterations=args.sa_iters, seed=0)),
-        ('boustrophedon', BoustrophedonPlacement(code.coords)),
-        ('boustrophedon_adaptive', BoustrophedonAdaptivePlacement(code.coords)),
-    ]
-    pis = [(name, strat.solve(hg)) for name, strat in strategies]
+    if args.family == 'boustro':
+        from qccd_mapping.placement.geometry_aware import (
+            boustrophedon_order, boustrophedon_last_pair_interleaved_order,
+            boustrophedon_both_ends_interleaved_order, _BOTH_ENDS_CONFIGS,
+        )
+        from qccd_mapping.placement import placement_from_order as pfo
+
+        def best_both_ends(coords):
+            orders = [boustrophedon_both_ends_interleaved_order(coords, a, b)
+                      for a, b in _BOTH_ENDS_CONFIGS]
+            return min(orders, key=lambda o: hg.total_span(pfo(o)))
+
+        d_max = max(y for _, y in code.coords.values())
+        flipped = {q: (x, d_max - y) for q, (x, y) in code.coords.items()}
+        strategies = []
+        for tag, coords in [('', code.coords), ('_flip', flipped)]:
+            strategies += [
+                (f'boustro_plain{tag}', boustrophedon_order(coords)),
+                (f'boustro_single_end{tag}',
+                 boustrophedon_last_pair_interleaved_order(coords)),
+                (f'boustro_both_ends{tag}', best_both_ends(coords)),
+            ]
+        pis = [(name, pfo(order)) for name, order in strategies]
+    else:
+        strategies = [
+            ('sequential', SequentialPlacement()),
+            ('spectral', SpectralPlacement()),
+            ('minla_localsearch', LocalSearchMinLA(iterations=5000, seed=0)),
+            ('stabilizer_span_SA', StabilizerSpanPlacement(iterations=args.sa_iters, seed=0)),
+            ('qccd_aware_SA', QCCDAwarePlacement(iterations=args.sa_iters, seed=0)),
+            ('boustrophedon', BoustrophedonPlacement(code.coords)),
+            ('boustrophedon_adaptive', BoustrophedonAdaptivePlacement(code.coords)),
+        ]
+        pis = [(name, strat.solve(hg)) for name, strat in strategies]
 
     header = (f"\n{'strategy':34s} {'C_span':>7s} {'C_int':>6s} | {'shut':>5s} {'swap':>5s} "
               f"{'split':>5s} {'merge':>5s} | {'T ms':>8s} | {'cap':>5s} {'avg':>5s}")
 
-    if args.schedule in ('snake', 'both'):
+    if args.schedule in ('snake', 'both', 'all'):
         print("\n[schedule = snake (既存回路固定、配置のみ差し替え)]" + header)
         _print_row('greedy_alt (ours)', hg.total_span(p_ga), hg.total_intervening_cost(p_ga),
                    *evaluate(init_ga, d, args.rounds), schedule='snake')
@@ -226,7 +320,7 @@ def main():
             _print_row(name, hg.total_span(p), hg.total_intervening_cost(p),
                        *evaluate(init, d, args.rounds), schedule='snake')
 
-    if args.schedule in ('pi', 'both'):
+    if args.schedule in ('pi', 'both', 'all'):
         print("\n[schedule = pi (π 整合の測定順序で回路を生成し直す)]" + header)
         _print_row('greedy_alt + snake (reference)', hg.total_span(p_ga),
                    hg.total_intervening_cost(p_ga), *evaluate(init_ga, d, args.rounds),
@@ -245,6 +339,60 @@ def main():
             _print_row(f'  greedy_alt on {name} π-schedule', float('nan'), float('nan'),
                        *evaluate(init_ga_pi, d, args.rounds, fwd_name, rev_name),
                        schedule='pi')
+
+    if args.schedule in ('liz', 'all'):
+        print("\n[schedule = liz (LIZ 基準の貪欲順序: 浅い生成元から左右交互)]" + header)
+        _print_row('greedy_alt + snake (reference)', hg.total_span(p_ga),
+                   hg.total_intervening_cost(p_ga), *evaluate(init_ga, d, args.rounds),
+                   schedule='snake')
+        for name, p in pis:
+            order = order_from_placement(p)
+            ordered = liz_greedy_order(d, order)
+            fwd_name, rev_name = order_schedule_modules(d, ordered, f'liz_{name}')
+            init = order_to_initial(order, ancilla_ids)
+            _print_row(f'{name} (π + liz-schedule)', hg.total_span(p),
+                       hg.total_intervening_cost(p),
+                       *evaluate(init, d, args.rounds, fwd_name, rev_name),
+                       schedule='liz')
+            # 本命パイプライン: π → liz 順序 → greedy_alt 再配置
+            mod = __import__(fwd_name)
+            init_ga_liz = placement_greedy_alt(mod.DATA_QUBITS, mod.ANCILLA_QUBITS, mod)
+            _print_row(f'  greedy_alt on {name} liz-schedule', float('nan'), float('nan'),
+                       *evaluate(init_ga_liz, d, args.rounds, fwd_name, rev_name),
+                       schedule='liz')
+
+    if args.schedule in ('lizseq', 'all'):
+        print("\n[schedule = lizseq (LIZ から外向き片側ずつ: 連続性を保つ変種)]" + header)
+        _print_row('greedy_alt + snake (reference)', hg.total_span(p_ga),
+                   hg.total_intervening_cost(p_ga), *evaluate(init_ga, d, args.rounds),
+                   schedule='snake')
+        for name, p in pis:
+            order = order_from_placement(p)
+            ordered = liz_greedy_order(d, order, alternate=False)
+            fwd_name, rev_name = order_schedule_modules(d, ordered, f'lizseq_{name}')
+            init = order_to_initial(order, ancilla_ids)
+            _print_row(f'{name} (π + lizseq)', hg.total_span(p),
+                       hg.total_intervening_cost(p),
+                       *evaluate(init, d, args.rounds, fwd_name, rev_name),
+                       schedule='lizseq')
+            mod = __import__(fwd_name)
+            init_ga_ls = placement_greedy_alt(mod.DATA_QUBITS, mod.ANCILLA_QUBITS, mod)
+            _print_row(f'  greedy_alt on {name} lizseq', float('nan'), float('nan'),
+                       *evaluate(init_ga_ls, d, args.rounds, fwd_name, rev_name),
+                       schedule='lizseq')
+
+    if args.schedule in ('hrow', 'all'):
+        # 一般符号の現状基準に相当: H の行順 (get_stabilizers の生成順) の
+        # 回路 + greedy_alt 配置
+        import d5_generator as gen
+        print("\n[schedule = hrow (H 行順 + greedy_alt: 一般符号の現状基準の相当物)]" + header)
+        stabs = [(t, sorted(dq)) for t, dq, _ in gen.get_stabilizers(d)]
+        fwd_name, rev_name = order_schedule_modules(d, stabs, 'hrow')
+        mod = __import__(fwd_name)
+        init_hrow = placement_greedy_alt(mod.DATA_QUBITS, mod.ANCILLA_QUBITS, mod)
+        _print_row('greedy_alt on H-row order', float('nan'), float('nan'),
+                   *evaluate(init_hrow, d, args.rounds, fwd_name, rev_name),
+                   schedule='hrow')
 
     if args.csv:
         _write_csv(args.csv)
