@@ -1,0 +1,88 @@
+{
+  "args": {
+    "arms": [
+      "no-cool",
+      "merge"
+    ],
+    "distances": [
+      5
+    ],
+    "ancilla_cool_us": 2000.0,
+    "merge_cool_threshold": 1.5,
+    "threshold": 5.0,
+    "cool_us": null,
+    "rounds": 3,
+    "shots": 20000,
+    "seed": 2026,
+    "quiet_clip": true,
+    "out_dir": "results/planner_v2",
+    "planner": "v2",
+    "prefetch_depth": 0,
+    "v2_sort_horizon": 2
+  },
+  "rows": [
+    {
+      "label": "no-cool",
+      "d": 5,
+      "config": {
+        "planner": "v2",
+        "prefetch_depth": 0,
+        "v2_sort_horizon": 2
+      },
+      "rounds": 3,
+      "n_cools": 0,
+      "round_ms": [
+        119.66355555555555,
+        119.65288888888888,
+        120.83633333333334
+      ],
+      "wall_ms": 360.15277777777777,
+      "n_ms": 240,
+      "cap_tr": 15.871237360898023,
+      "avg_tr": 6.583769133705742,
+      "median_tr": 6.126671980816993,
+      "n_clipped": 0,
+      "n_err": 4735,
+      "shots": 20000,
+      "p_L": 0.23675,
+      "ci": [
+        0.23090949108025433,
+        0.2426916196184027
+      ],
+      "p_L_per_round": 0.08612049527395915
+    },
+    {
+      "label": "merge@1.5+anc",
+      "d": 5,
+      "config": {
+        "merge_cool_threshold_transversal": 1.5,
+        "cool_ancilla_after_measure_us": 2000.0,
+        "planner": "v2",
+        "prefetch_depth": 0,
+        "v2_sort_horizon": 2
+      },
+      "rounds": 3,
+      "n_cools": 185,
+      "round_ms": [
+        253.95688888888918,
+        259.7694444444448,
+        262.1764444444447
+      ],
+      "wall_ms": 775.9027777777787,
+      "n_ms": 240,
+      "cap_tr": 6.662119959086963,
+      "avg_tr": 2.8945942990391273,
+      "median_tr": 2.936990662385469,
+      "n_clipped": 0,
+      "n_err": 799,
+      "shots": 20000,
+      "p_L": 0.03995,
+      "ci": [
+        0.03732294399933038,
+        0.04275375486835112
+      ],
+      "p_L_per_round": 0.01349804409239952
+    }
+  ],
+  "lambdas": []
+}

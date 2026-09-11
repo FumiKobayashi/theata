@@ -84,6 +84,22 @@ class CompilerConfig:
     cool_ancilla_after_measure_us: Optional[float] = None
     cool_ancilla_measure_interval: int = 1
     merge_cool_threshold_transversal: Optional[float] = None
+    # planner v2 (per-zone state machine + JIT staging, 2026-09-08 設計):
+    #   planner: "v1" = 従来 MovementPlanner / "v2" = StateMachinePlanner
+    #   prefetch_depth: 測定窓中に次需要イオンを memory→corridor temp へ
+    #     先行切り出しする深さ (0 = 厳密 JIT, 1 = 1 イオン先読み)
+    #   v2_sort_horizon: 測定窓中に各 memory zone で納品順へ先行整列する
+    #     需要イオン数の上限 (LIZ 端から horizon 枠)
+    #   v2_sort_trigger: 整列を emit するタイミング
+    #     "measure"  = MEASURE 直後 (測定窓に重ねる。needed[1] 以降は
+    #                  edge-1 止め = 中間パターンの加熱オーバーヘッドあり)
+    #     "delivery" = 納品完了直後 (端が空いた瞬間に次需要イオンを真端まで
+    #                  整列。v1 と同一 swap 列の前倒し = 加熱中立が狙い)
+    #     "both"     = 両方
+    planner: str = "v1"
+    prefetch_depth: int = 1
+    v2_sort_horizon: int = 4
+    v2_sort_trigger: str = "measure"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -130,6 +146,18 @@ class CompilerConfig:
             raise ValueError(
                 f"merge_cool_threshold_transversal must be >= 0 or None, "
                 f"got {self.merge_cool_threshold_transversal}")
+        if self.planner not in {"v1", "v2"}:
+            raise ValueError(f"planner must be 'v1' or 'v2', got {self.planner}")
+        if self.prefetch_depth not in (0, 1):
+            raise ValueError(
+                f"prefetch_depth must be 0 or 1, got {self.prefetch_depth}")
+        if not isinstance(self.v2_sort_horizon, int) or self.v2_sort_horizon < 0:
+            raise ValueError(
+                f"v2_sort_horizon must be int >= 0, got {self.v2_sort_horizon}")
+        if self.v2_sort_trigger not in {"measure", "delivery", "both"}:
+            raise ValueError(
+                f"v2_sort_trigger must be 'measure', 'delivery' or 'both', "
+                f"got {self.v2_sort_trigger}")
 
 
 # ==========================================
@@ -944,6 +972,11 @@ class MovementPlanner:
                             dag, state, node.id
                         )
                         ops.extend(reorder_ops)
+
+                    # planner v2 フック: 測定窓 (LIZ 長時間占有) に重ねる
+                    # memory zone 側の先行整列 / JIT staging を emit する
+                    if isinstance(node.operation, MeasureOp):
+                        ops.extend(self._measure_window_ops(dag, state))
             else:
                 movement_ops = self._generate_movements(dag, front_layer, state)
                 if not movement_ops:
@@ -958,6 +991,12 @@ class MovementPlanner:
                 raise RuntimeError("MovementPlanner: max iterations exceeded")
 
         return ops
+
+    def _measure_window_ops(self, dag: DAG, state: QCCDState) -> List[Operation]:
+        """MEASURE emit 直後に呼ばれるフック。planner v2 が memory zone の
+        先行整列 / JIT staging をここで emit する (v1 では no-op)。
+        戻り値の op 列はそのまま flat_ops に追加される。"""
+        return []
 
     def _flush_pending_measures(
         self,
@@ -1044,6 +1083,10 @@ class MovementPlanner:
                     reset_ancilla = node.operation.targets[0]
                     if reset_ancilla in ancilla_set:
                         dag.execute(node_id)
+
+        # planner v2 フック: バッチ測定窓に重ねる先行整列 / JIT staging
+        if dag is not None:
+            ops.extend(self._measure_window_ops(dag, state))
 
         return ops
 
@@ -1404,6 +1447,13 @@ class MovementPlanner:
         ops = []
         for i in range(1, len(waypoints)):
             ops.extend(self._move_ion_one_hop(ion_id, waypoints[i], state))
+
+        # 出所タグ (可視化/分析用): LIZ への搬送 = deliver、それ以外 = evict。
+        # 既にタグ済みの op (planner v2 の sort/flush 等) は上書きしない
+        origin = "deliver" if self.architecture.is_liz(dst_zone) else "evict"
+        for op in ops:
+            if not hasattr(op, "origin"):
+                op.origin = origin
 
         return ops
 
@@ -1773,8 +1823,13 @@ class QCCDCompiler:
         self.architecture = architecture
         self.config = config or CompilerConfig.baseline()
         self.config.validate()
-        self._planner = MovementPlanner(architecture, self.config,
-                                        time_params=time_params)
+        if self.config.planner == "v2":
+            from planner_v2 import StateMachinePlanner
+            self._planner = StateMachinePlanner(architecture, self.config,
+                                                time_params=time_params)
+        else:
+            self._planner = MovementPlanner(architecture, self.config,
+                                            time_params=time_params)
         self._scheduler = Scheduler()
 
     def compile(

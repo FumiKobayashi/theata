@@ -1,0 +1,84 @@
+{
+  "experiment": "planner_v2_comparison",
+  "generated_at": "2026-09-10T15:02:00.550723",
+  "results": [
+    {
+      "circuit": "d5_reuse1",
+      "variant": "v1",
+      "rounds": 1,
+      "horizon": 4,
+      "transport": {
+        "shuttles": 161,
+        "swaps": 187,
+        "splits": 482,
+        "merges": 482
+      },
+      "lock_ms": [
+        120.9301111111111
+      ],
+      "T_lock_ms": 120.9301111111111,
+      "event_ms": [
+        107.94144444444441
+      ],
+      "T_event_ms": 107.94144444444441,
+      "flat_ops": 1808,
+      "timesteps": 1322,
+      "parallelism": 1.367624810892587,
+      "hidden_us": 19142.222222222284,
+      "nbar_cap": 14.399230992778769,
+      "nbar_avg": 5.794306818629577
+    },
+    {
+      "circuit": "d5_reuse1",
+      "variant": "v2 d0",
+      "rounds": 1,
+      "horizon": 4,
+      "transport": {
+        "shuttles": 161,
+        "swaps": 187,
+        "splits": 502,
+        "merges": 502
+      },
+      "lock_ms": [
+        119.44755555555555
+      ],
+      "T_lock_ms": 119.44755555555555,
+      "event_ms": [
+        98.00177777777775
+      ],
+      "T_event_ms": 98.00177777777775,
+      "flat_ops": 1848,
+      "timesteps": 1353,
+      "parallelism": 1.3658536585365855,
+      "hidden_us": 31951.11111111116,
+      "nbar_cap": 15.300948266283143,
+      "nbar_avg": 7.254227064894627
+    },
+    {
+      "circuit": "d5_reuse1",
+      "variant": "v2 d1",
+      "rounds": 1,
+      "horizon": 4,
+      "transport": {
+        "shuttles": 161,
+        "swaps": 187,
+        "splits": 504,
+        "merges": 504
+      },
+      "lock_ms": [
+        119.52755555555555
+      ],
+      "T_lock_ms": 119.52755555555555,
+      "event_ms": [
+        98.00177777777775
+      ],
+      "T_event_ms": 98.00177777777775,
+      "flat_ops": 1852,
+      "timesteps": 1353,
+      "parallelism": 1.368810051736881,
+      "hidden_us": 32252.22222222227,
+      "nbar_cap": 15.345133620883969,
+      "nbar_avg": 7.2929073987192625
+    }
+  ]
+}

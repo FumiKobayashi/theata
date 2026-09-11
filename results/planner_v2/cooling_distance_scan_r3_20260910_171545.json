@@ -1,0 +1,92 @@
+{
+  "args": {
+    "arms": [
+      "no-cool",
+      "merge"
+    ],
+    "distances": [
+      5
+    ],
+    "ancilla_cool_us": 2000.0,
+    "merge_cool_threshold": 1.5,
+    "threshold": 5.0,
+    "cool_us": null,
+    "rounds": 3,
+    "shots": 20000,
+    "seed": 2026,
+    "quiet_clip": true,
+    "out_dir": "results/planner_v2",
+    "planner": "v2",
+    "prefetch_depth": 0,
+    "v2_sort_horizon": 1,
+    "v2_sort_trigger": "delivery",
+    "time_model": "lockstep"
+  },
+  "rows": [
+    {
+      "label": "no-cool",
+      "d": 5,
+      "config": {
+        "planner": "v2",
+        "prefetch_depth": 0,
+        "v2_sort_horizon": 1,
+        "v2_sort_trigger": "delivery"
+      },
+      "rounds": 3,
+      "n_cools": 0,
+      "round_ms": [
+        110.93999999999998,
+        112.40455555555552,
+        113.04177777777778
+      ],
+      "wall_ms": 336.38633333333325,
+      "n_ms": 240,
+      "cap_tr": 14.223346377923965,
+      "avg_tr": 5.79336693202707,
+      "median_tr": 5.408532448292272,
+      "n_clipped": 0,
+      "n_err": 3803,
+      "shots": 20000,
+      "p_L": 0.19015,
+      "ci": [
+        0.18477104600165994,
+        0.19564796311506893
+      ],
+      "p_L_per_round": 0.0678877931088454
+    },
+    {
+      "label": "merge@1.5+anc",
+      "d": 5,
+      "config": {
+        "merge_cool_threshold_transversal": 1.5,
+        "cool_ancilla_after_measure_us": 2000.0,
+        "planner": "v2",
+        "prefetch_depth": 0,
+        "v2_sort_horizon": 1,
+        "v2_sort_trigger": "delivery"
+      },
+      "rounds": 3,
+      "n_cools": 186,
+      "round_ms": [
+        247.574666666667,
+        257.4552222222226,
+        258.0688888888892
+      ],
+      "wall_ms": 763.0987777777788,
+      "n_ms": 240,
+      "cap_tr": 6.021832452178439,
+      "avg_tr": 2.4868627495354887,
+      "median_tr": 2.4779643741192467,
+      "n_clipped": 0,
+      "n_err": 559,
+      "shots": 20000,
+      "p_L": 0.02795,
+      "ci": [
+        0.025754653389111915,
+        0.0303266545132662
+      ],
+      "p_L_per_round": 0.009404840400371706
+    }
+  ],
+  "lambdas": []
+}

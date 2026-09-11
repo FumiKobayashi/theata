@@ -101,13 +101,19 @@ def per_round_rate(p_total, rounds):
 
 
 def run_point(label, d, cfg_kwargs, rounds, shots, seed, params, tp,
-              warn_on_clip):
+              warn_on_clip, time_model="lockstep"):
     results = compile_rounds_d(d, cfg_kwargs, rounds)
     _, _, observable = DISTANCE_CIRCUITS[d]
 
     n_cools = sum(cr.stats.get('cools', 0) for cr in results)
-    pe = ParallelEstimator(tp) if tp else ParallelEstimator()
-    round_ms = [pe.estimate(cr.timesteps).total_time / 1000 for cr in results]
+    if time_model == "event":
+        from event_scheduler import schedule_events
+        round_ms = [schedule_events(cr.flat_ops, tp)[1] / 1000
+                    for cr in results]
+    else:
+        pe = ParallelEstimator(tp) if tp else ParallelEstimator()
+        round_ms = [pe.estimate(cr.timesteps).total_time / 1000
+                    for cr in results]
     stats = gate_phonon_stats(results)
 
     all_gates = []
@@ -119,7 +125,8 @@ def run_point(label, d, cfg_kwargs, rounds, shots, seed, params, tp,
         200, separate_observables=True)
     assert det.sum() == 0 and obs.sum() == 0, "noiseless detectors non-zero"
 
-    anchor_ops, gaps = gaps_from_compile_results(results, time_params=tp)
+    anchor_ops, gaps = gaps_from_compile_results(results, time_params=tp,
+                                                 mode=time_model)
     pauli_rates = phonon_to_pauli_lookup_rates(
         all_gates, PAULI_LOOKUP, mode=LOOKUP_MODE, warn_on_clip=warn_on_clip)
     noisy = inject_noise_approach_b(circuit, pauli_rates, params,
@@ -186,6 +193,16 @@ def main():
     ap.add_argument('--seed', type=int, default=2026)
     ap.add_argument('--quiet-clip', action='store_true')
     ap.add_argument('--out-dir', default='results/cooling_distance_scan')
+    ap.add_argument('--planner', choices=['v1', 'v2'], default='v1',
+                    help='v2 = per-zone state machine + JIT staging (planner v2)')
+    ap.add_argument('--prefetch-depth', type=int, default=0)
+    ap.add_argument('--v2-sort-horizon', type=int, default=2)
+    ap.add_argument('--v2-sort-trigger', default='measure',
+                    choices=['measure', 'delivery', 'both'])
+    ap.add_argument('--time-model', choices=['lockstep', 'event'],
+                    default='lockstep',
+                    help='event = イベント駆動時間で wall と per-ion idle '
+                         '(dephasing) を評価する')
     args = ap.parse_args()
 
     params = default_noise_params()
@@ -203,6 +220,12 @@ def main():
                 {'cool_threshold_transversal': args.threshold}),
     }
     arms = [arm_defs[a] for a in args.arms]
+    if args.planner == 'v2':
+        arms = [(label, {**kw, 'planner': 'v2',
+                         'prefetch_depth': args.prefetch_depth,
+                         'v2_sort_horizon': args.v2_sort_horizon,
+                         'v2_sort_trigger': args.v2_sort_trigger})
+                for label, kw in arms]
 
     print(f"E-C6 1-LIZ distance scan: d={args.distances}, rounds={args.rounds}, "
           f"shots={args.shots}, arms={[a[0] for a in arms]}")
@@ -213,7 +236,8 @@ def main():
         for d in args.distances:
             rows.append(run_point(label, d, kw, args.rounds, args.shots,
                                   args.seed, params, tp,
-                                  warn_on_clip=not args.quiet_clip))
+                                  warn_on_clip=not args.quiet_clip,
+                                  time_model=args.time_model))
 
     # Λ の集計と要約
     print(f"\n{'='*78}")

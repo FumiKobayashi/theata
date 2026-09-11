@@ -1,0 +1,84 @@
+{
+  "experiment": "planner_v2_comparison",
+  "generated_at": "2026-09-10T15:01:44.769436",
+  "results": [
+    {
+      "circuit": "snake_reuse1",
+      "variant": "v1",
+      "rounds": 1,
+      "horizon": 4,
+      "transport": {
+        "shuttles": 49,
+        "swaps": 24,
+        "splits": 81,
+        "merges": 81
+      },
+      "lock_ms": [
+        26.918555555555553
+      ],
+      "T_lock_ms": 26.918555555555553,
+      "event_ms": [
+        22.694444444444446
+      ],
+      "T_event_ms": 22.694444444444446,
+      "flat_ops": 387,
+      "timesteps": 308,
+      "parallelism": 1.2564935064935066,
+      "hidden_us": 5893.333333333332,
+      "nbar_cap": 2.9010297169705934,
+      "nbar_avg": 1.3289715078262274
+    },
+    {
+      "circuit": "snake_reuse1",
+      "variant": "v2 d0",
+      "rounds": 1,
+      "horizon": 4,
+      "transport": {
+        "shuttles": 49,
+        "swaps": 24,
+        "splits": 84,
+        "merges": 84
+      },
+      "lock_ms": [
+        27.147555555555556
+      ],
+      "T_lock_ms": 27.147555555555556,
+      "event_ms": [
+        22.861222222222228
+      ],
+      "T_event_ms": 22.861222222222228,
+      "flat_ops": 393,
+      "timesteps": 311,
+      "parallelism": 1.2636655948553055,
+      "hidden_us": 6661.111111111108,
+      "nbar_cap": 3.0053082225684986,
+      "nbar_avg": 1.5232489064519479
+    },
+    {
+      "circuit": "snake_reuse1",
+      "variant": "v2 d1",
+      "rounds": 1,
+      "horizon": 4,
+      "transport": {
+        "shuttles": 49,
+        "swaps": 24,
+        "splits": 85,
+        "merges": 85
+      },
+      "lock_ms": [
+        27.147555555555556
+      ],
+      "T_lock_ms": 27.147555555555556,
+      "event_ms": [
+        22.861222222222228
+      ],
+      "T_event_ms": 22.861222222222228,
+      "flat_ops": 395,
+      "timesteps": 311,
+      "parallelism": 1.270096463022508,
+      "hidden_us": 6762.222222222219,
+      "nbar_cap": 3.027721202678239,
+      "nbar_avg": 1.5354650915799775
+    }
+  ]
+}
