@@ -262,6 +262,7 @@ def compute_ion_gaps(
 def gaps_from_compile_results(
     compile_results: List,
     time_params: Optional[TimeParameters] = None,
+    mode: str = "lockstep",
 ) -> Tuple[List[Operation], IonGaps]:
     """複数ラウンドの CompileResult (1-LIZ / global scheduler) からギャップを構築。
 
@@ -269,17 +270,31 @@ def gaps_from_compile_results(
     バリア待ちや ラウンド跨ぎの idle は次ラウンド最初の anchor のギャップに
     自動的に計上される。
 
+    Args:
+        mode: "lockstep" = 既存 timestep モデル /
+              "event" = イベント駆動 (event_scheduler.schedule_events) の
+              連続時間区間からギャップを構築する。wall が短くなる分
+              per-ion idle (dephasing) が減る。
+
     Returns:
         (anchor_ops, ion_gaps):
           anchor_ops = 全ラウンドの flat_ops から anchor を回路順に並べたリスト
                        (stim_recompiler の Stim 論理 op 順と 1:1)
     """
+    if mode not in ("lockstep", "event"):
+        raise ValueError(f"mode must be 'lockstep' or 'event', got {mode}")
     intervals: List[OpInterval] = []
     offset = 0.0
     linear: List[Operation] = []
     for cr in compile_results:
-        ivs, offset = op_intervals_from_timesteps(
-            cr.timesteps, time_params, t_offset=offset)
+        if mode == "event":
+            # 遅延 import (event_scheduler は本モジュールを import するため)
+            from event_scheduler import schedule_events
+            ivs, offset = schedule_events(
+                cr.flat_ops, time_params, t_offset=offset)
+        else:
+            ivs, offset = op_intervals_from_timesteps(
+                cr.timesteps, time_params, t_offset=offset)
         intervals.extend(ivs)
         linear.extend(cr.flat_ops)
 
