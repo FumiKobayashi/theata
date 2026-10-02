@@ -12,12 +12,17 @@
   "cool": 400.0,
   "phonon_shuttle_axial_per_180um": 0.5,
   "phonon_shuttle_transversal": 0.05,
+  "phonon_shuttle_transversal2": null,
   "phonon_split_axial": 10.0,
   "phonon_split_transversal": 0.05,
+  "phonon_split_transversal2": null,
   "phonon_merge_axial": 10.0,
   "phonon_merge_transversal": 0.05,
+  "phonon_merge_transversal2": null,
   "phonon_swap_axial": 0.1,
   "phonon_swap_transversal": 0.1,
+  "phonon_swap_transversal2": null,
   "phonon_cool_residual_axial": 0.0,
-  "phonon_cool_residual_transversal": 0.0
+  "phonon_cool_residual_transversal": 0.0,
+  "phonon_cool_residual_transversal2": null
 }

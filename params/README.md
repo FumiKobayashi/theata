@@ -36,3 +36,13 @@ ParallelEstimator(tp) / Estimator(tp)              # 時間推定に反映
 | `cool` | Cool 命令 1 回の所要時間 μs (placeholder 値、要文献確認) |
 | `phonon_cool_residual_axial` | 冷却後の残留 axial フォノン数 |
 | `phonon_cool_residual_transversal` | 冷却後の残留 transversal フォノン数 |
+
+## フォノンのモード構成 (2026-10-02 会議決定)
+
+1 イオンあたり **axial 1 本 + transverse 2 本の計 3 モード**を追跡する。
+
+- 無印 `phonon_*_transversal` = **第 1 transverse モード**。誤り参照モード
+  (MS 誤り LUT・閾値冷却ポリシーが参照する側)。heating rate の大きい方
+  (worse-case) をこちらに割り当てる規約。
+- `phonon_*_transversal2` = **第 2 transverse モード**。`null` (未指定) なら
+  第 1 モードと同じ per-op コストを使う (モード間でコストを区別しない既定)。

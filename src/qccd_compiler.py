@@ -324,7 +324,10 @@ class QCCDState:
     - SwapはTemporary Zoneでは実行不可
 
     フォノン追跡:
-    - 各イオンの axial / transversal フォノン数を管理
+    - 各イオンの 3 モード (axial 1 本 + transverse 2 本) のフォノン数を管理
+      (2026-10-02 会議: 1 イオンあたり 3 パラメータ)。
+      phonon_transversal = 第 1 transverse モード (誤り参照モード: MS LUT・
+      閾値ポリシーが参照)、phonon_transversal2 = 第 2 transverse モード。
     - 同一チェイン内のイオンは同じフォノン数を持つ（不変条件）
     - phonon_params が None の場合はフォノン追跡を無効化
     """
@@ -332,7 +335,8 @@ class QCCDState:
     ion_locations: Dict[int, int] = field(default_factory=dict)   # ion_id -> zone_id
     zone_contents: Dict[int, List[int]] = field(default_factory=dict)  # zone_id -> [ion_ids]
     phonon_axial: Dict[int, float] = field(default_factory=dict)       # ion_id -> axial phonon
-    phonon_transversal: Dict[int, float] = field(default_factory=dict) # ion_id -> transversal phonon
+    phonon_transversal: Dict[int, float] = field(default_factory=dict) # ion_id -> transverse mode 1
+    phonon_transversal2: Dict[int, float] = field(default_factory=dict)  # ion_id -> transverse mode 2
     phonon_params: Optional[dict] = None  # フォノンパラメータ（Noneで無効化）
     # MSゲート実行時のフォノン記録
     phonon_at_gates: List[dict] = field(default_factory=list)
@@ -350,6 +354,7 @@ class QCCDState:
         if ion_id not in self.phonon_axial:
             self.phonon_axial[ion_id] = 0.0
             self.phonon_transversal[ion_id] = 0.0
+            self.phonon_transversal2[ion_id] = 0.0
 
     def place_ion(self, ion_id: int, zone_id: int):
         """イオンをMemory Zoneに配置（初期配置用、Memory限定）"""
@@ -608,10 +613,15 @@ class QCCDState:
         if self.phonon_params:
             ax = self.phonon_params.get('swap_axial', 0.1)
             tr = self.phonon_params.get('swap_transversal', 0.1)
+            tr2 = self.phonon_params.get('swap_transversal2', tr)
             self.phonon_axial[ion_a] += ax
             self.phonon_transversal[ion_a] += tr
+            self.phonon_transversal2[ion_a] = (
+                self.phonon_transversal2.get(ion_a, 0.0) + tr2)
             self.phonon_axial[ion_b] += ax
             self.phonon_transversal[ion_b] += tr
+            self.phonon_transversal2[ion_b] = (
+                self.phonon_transversal2.get(ion_b, 0.0) + tr2)
 
     def split_chain(self, ion_id: int, dst_zone_id: int):
         """
@@ -633,8 +643,12 @@ class QCCDState:
             self.ion_locations[ion_id] = dst_zone_id
             # フォノン: 移動したイオンに加算
             if self.phonon_params:
+                tr = self.phonon_params.get('split_transversal', 0.05)
                 self.phonon_axial[ion_id] += self.phonon_params.get('split_axial', 10.0)
-                self.phonon_transversal[ion_id] += self.phonon_params.get('split_transversal', 0.05)
+                self.phonon_transversal[ion_id] += tr
+                self.phonon_transversal2[ion_id] = (
+                    self.phonon_transversal2.get(ion_id, 0.0)
+                    + self.phonon_params.get('split_transversal2', tr))
             return
 
         move_right = dst_zone_id > zone_id
@@ -662,9 +676,12 @@ class QCCDState:
         if self.phonon_params:
             ax = self.phonon_params.get('split_axial', 10.0)
             tr = self.phonon_params.get('split_transversal', 0.05)
+            tr2 = self.phonon_params.get('split_transversal2', tr)
             for ion in moved:
                 self.phonon_axial[ion] += ax
                 self.phonon_transversal[ion] += tr
+                self.phonon_transversal2[ion] = (
+                    self.phonon_transversal2.get(ion, 0.0) + tr2)
 
     def merge_chains(self, zone_left: int, zone_right: int):
         """
@@ -683,11 +700,14 @@ class QCCDState:
             n = len(merged)
             avg_ax = sum(self.phonon_axial.get(i, 0.0) for i in merged) / n
             avg_tr = sum(self.phonon_transversal.get(i, 0.0) for i in merged) / n
+            avg_tr2 = sum(self.phonon_transversal2.get(i, 0.0) for i in merged) / n
             merge_ax = self.phonon_params.get('merge_axial', 10.0)
             merge_tr = self.phonon_params.get('merge_transversal', 0.05)
+            merge_tr2 = self.phonon_params.get('merge_transversal2', merge_tr)
             for ion in merged:
                 self.phonon_axial[ion] = avg_ax + merge_ax
                 self.phonon_transversal[ion] = avg_tr + merge_tr
+                self.phonon_transversal2[ion] = avg_tr2 + merge_tr2
 
         left_is_temp = self.architecture.is_temp(zone_left)
         right_is_temp = self.architecture.is_temp(zone_right)
@@ -720,9 +740,12 @@ class QCCDState:
         axial_per_180 = self.phonon_params.get('shuttle_axial_per_180um', 0.5)
         axial_add = axial_per_180 * (distance_um / 180.0)
         tr_add = self.phonon_params.get('shuttle_transversal', 0.05)
+        tr2_add = self.phonon_params.get('shuttle_transversal2', tr_add)
         for ion in ions_in_chain:
             self.phonon_axial[ion] += axial_add
             self.phonon_transversal[ion] += tr_add
+            self.phonon_transversal2[ion] = (
+                self.phonon_transversal2.get(ion, 0.0) + tr2_add)
 
     def cool_chain(self, zone_id: int):
         """ゾーン内チェーン全体を残留フォノン数まで冷却する（CoolOp の効果）
@@ -734,10 +757,13 @@ class QCCDState:
             return
         res_ax = self.phonon_params.get('cool_residual_axial', 0.0)
         res_tr = self.phonon_params.get('cool_residual_transversal', 0.0)
+        res_tr2 = self.phonon_params.get('cool_residual_transversal2', res_tr)
         for ion in self.zone_contents.get(zone_id, []):
             self.phonon_axial[ion] = min(self.phonon_axial.get(ion, 0.0), res_ax)
             self.phonon_transversal[ion] = min(
                 self.phonon_transversal.get(ion, 0.0), res_tr)
+            self.phonon_transversal2[ion] = min(
+                self.phonon_transversal2.get(ion, 0.0), res_tr2)
 
     def can_execute_cool(self, op: CoolOp) -> bool:
         """CoolOp 実行可能か: coolant 指定時はそれが対象ゾーンに居ること"""
@@ -749,7 +775,11 @@ class QCCDState:
         """ゲート実行時のフォノン数を記録"""
         if not self.phonon_params:
             return
-        phonons = {ion: (self.phonon_axial.get(ion, 0.0), self.phonon_transversal.get(ion, 0.0))
+        # 記録形式は (axial, transversal mode1, transversal mode2)。
+        # 既存の解析コードは p[0]/p[1] を参照するため後方互換。
+        phonons = {ion: (self.phonon_axial.get(ion, 0.0),
+                         self.phonon_transversal.get(ion, 0.0),
+                         self.phonon_transversal2.get(ion, 0.0))
                    for ion in targets}
         self.phonon_at_gates.append({
             "gate": f"{gate_type}({','.join(str(t) for t in targets)})",
@@ -1228,7 +1258,13 @@ class MovementPlanner:
 
         res_ax = state.phonon_params.get('cool_residual_axial', 0.0)
         res_tr = state.phonon_params.get('cool_residual_transversal', 0.0)
+        res_tr2 = state.phonon_params.get('cool_residual_transversal2', res_tr)
         cool_dur = self.config.cool_ancilla_after_measure_us
+
+        def _ancilla_warm(anc: int) -> bool:
+            return (state.phonon_transversal.get(anc, 0.0) > res_tr + 1e-12
+                    or state.phonon_transversal2.get(anc, 0.0) > res_tr2 + 1e-12
+                    or state.phonon_axial.get(anc, 0.0) > res_ax + 1e-12)
 
         ops: List[Operation] = []
         for mem in self.architecture.get_memory_zones():
@@ -1243,8 +1279,7 @@ class MovementPlanner:
             if mean_tr <= thr:
                 continue
             # 1) アンシラを冷却 (前の側への合流で温まっていれば再冷却)
-            if (state.phonon_transversal.get(ancilla, 0.0) > res_tr + 1e-12
-                    or state.phonon_axial.get(ancilla, 0.0) > res_ax + 1e-12):
+            if _ancilla_warm(ancilla):
                 state.cool_chain(liz)
                 ops.append(CoolOp(zone_id=liz, duration_us=cool_dur))
             # 2) memory へ合流 (merge の平均化で memory チェーンが冷える)
@@ -1253,8 +1288,7 @@ class MovementPlanner:
             ops.extend(self._move_ion_to_zone(ancilla, liz, state))
         # 4) 熱シャトルとして吸った熱を捨てる: 最後の合流で温まったまま
         #    次のスタビライザ測定に使われないよう、帰還後に再冷却する
-        if ops and (state.phonon_transversal.get(ancilla, 0.0) > res_tr + 1e-12
-                    or state.phonon_axial.get(ancilla, 0.0) > res_ax + 1e-12):
+        if ops and _ancilla_warm(ancilla):
             state.cool_chain(liz)
             ops.append(CoolOp(zone_id=liz, duration_us=cool_dur))
         return ops
@@ -1865,11 +1899,14 @@ class QCCDCompiler:
             st = self._planner._last_state
             max_ax = max(st.phonon_axial.values()) if st.phonon_axial else 0.0
             max_tr = max(st.phonon_transversal.values()) if st.phonon_transversal else 0.0
+            max_tr2 = max(st.phonon_transversal2.values()) if st.phonon_transversal2 else 0.0
             phonon_data = {
                 'max_axial': max_ax,
                 'max_transversal': max_tr,
+                'max_transversal2': max_tr2,
                 'per_ion_axial': dict(st.phonon_axial),
                 'per_ion_transversal': dict(st.phonon_transversal),
+                'per_ion_transversal2': dict(st.phonon_transversal2),
                 'at_gates': st.phonon_at_gates,
             }
 

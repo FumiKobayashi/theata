@@ -162,6 +162,8 @@ class PerLIZResult:
             'max_axial': max(st.phonon_axial.values()) if st.phonon_axial else 0.0,
             'max_transversal': (max(st.phonon_transversal.values())
                                 if st.phonon_transversal else 0.0),
+            'max_transversal2': (max(st.phonon_transversal2.values())
+                                 if st.phonon_transversal2 else 0.0),
         }
 
     def epoch_summary(self) -> List[dict]:
@@ -780,6 +782,7 @@ def save_streams(result: PerLIZResult, out_dir, prefix: str) -> List[str]:
                 f"total {ms(sum(e.wait_us for e in binding)):.2f} ms)\n")
         f.write(f"phonon_max_axial: {ph['max_axial']:.2f}\n")
         f.write(f"phonon_max_transversal: {ph['max_transversal']:.3f}\n")
+        f.write(f"phonon_max_transversal2: {ph['max_transversal2']:.3f}\n")
     written.append(str(path))
 
     return written

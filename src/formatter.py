@@ -273,11 +273,15 @@ def build_compile_result_json(
         out["phonon"] = {
             "max_axial": pd.get('max_axial', 0.0),
             "max_transversal": pd.get('max_transversal', 0.0),
+            "max_transversal2": pd.get('max_transversal2', 0.0),
             "per_ion_axial": {
                 str(ion): val for ion, val in pd.get('per_ion_axial', {}).items()
             },
             "per_ion_transversal": {
                 str(ion): val for ion, val in pd.get('per_ion_transversal', {}).items()
+            },
+            "per_ion_transversal2": {
+                str(ion): val for ion, val in pd.get('per_ion_transversal2', {}).items()
             },
             "at_gates": at_gates_serial,
         }

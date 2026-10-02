@@ -82,19 +82,34 @@ def phonon_params_from(params: Optional[TimeParameters] = None) -> dict:
     ここで写像する。None を渡すとデフォルト値の dict を返す。
     """
     p = params or TimeParameters()
+
+    def _tr2(value2, value1):
+        # *_transversal2 が None のとき第 1 モードと同値 (TimeParameters の規約)
+        return value1 if value2 is None else value2
+
     return {
         'split_axial': p.phonon_split_axial,
         'split_transversal': p.phonon_split_transversal,
+        'split_transversal2': _tr2(p.phonon_split_transversal2,
+                                   p.phonon_split_transversal),
         'merge_axial': p.phonon_merge_axial,
         'merge_transversal': p.phonon_merge_transversal,
+        'merge_transversal2': _tr2(p.phonon_merge_transversal2,
+                                   p.phonon_merge_transversal),
         'swap_axial': p.phonon_swap_axial,
         'swap_transversal': p.phonon_swap_transversal,
+        'swap_transversal2': _tr2(p.phonon_swap_transversal2,
+                                  p.phonon_swap_transversal),
         'shuttle_axial_per_180um': p.phonon_shuttle_axial_per_180um,
         'shuttle_transversal': p.phonon_shuttle_transversal,
+        'shuttle_transversal2': _tr2(p.phonon_shuttle_transversal2,
+                                     p.phonon_shuttle_transversal),
         'shuttle_base_distance': p.shuttle_base_distance,
         'shuttle_ion_factor': p.shuttle_ion_factor,
         'cool_residual_axial': p.phonon_cool_residual_axial,
         'cool_residual_transversal': p.phonon_cool_residual_transversal,
+        'cool_residual_transversal2': _tr2(p.phonon_cool_residual_transversal2,
+                                           p.phonon_cool_residual_transversal),
     }
 
 

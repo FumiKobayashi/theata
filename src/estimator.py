@@ -48,21 +48,31 @@ class TimeParameters:
     cool: float = 400.0
 
     # フォノン数変化パラメータ
+    # モード構成 (2026-10-02 会議): 1 イオンあたり axial 1 本 + transverse 2 本の
+    # 計 3 モードを追跡する。無印 *_transversal = 第 1 transverse モード
+    # (誤り参照モード: MS 誤り LUT・閾値冷却ポリシーが参照する worse-case 側)。
+    # *_transversal2 = 第 2 transverse モード。None なら第 1 モードと同値
+    # (per-op コストはモード間で区別しない、が既定)。
     # Shuttling: axial = 0.5 per 180μm, transversal = 0.05 per op
     phonon_shuttle_axial_per_180um: float = 0.5
     phonon_shuttle_transversal: float = 0.05
+    phonon_shuttle_transversal2: Optional[float] = None
     # Split: axial = 10 per op, transversal = 0.05 per op (移動チェインのみ)
     phonon_split_axial: float = 10.0
     phonon_split_transversal: float = 0.05
+    phonon_split_transversal2: Optional[float] = None
     # Merge: axial = 10 per op, transversal = 0.05 per op (平均化後に加算)
     phonon_merge_axial: float = 10.0
     phonon_merge_transversal: float = 0.05
+    phonon_merge_transversal2: Optional[float] = None
     # Swap: axial = 0.1 per op, transversal = 0.1 per op
     phonon_swap_axial: float = 0.1
     phonon_swap_transversal: float = 0.1
+    phonon_swap_transversal2: Optional[float] = None
     # Cool: チェーン内全イオンをこの残留値まで下げる（現在値がこれ未満ならそのまま）
     phonon_cool_residual_axial: float = 0.0
     phonon_cool_residual_transversal: float = 0.0
+    phonon_cool_residual_transversal2: Optional[float] = None
     
     def shuttle_time(self, dst_chain_length: int = 0) -> float:
         """
