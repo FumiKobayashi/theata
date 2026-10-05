@@ -73,6 +73,16 @@ class TimeParameters:
     phonon_cool_residual_axial: float = 0.0
     phonon_cool_residual_transversal: float = 0.0
     phonon_cool_residual_transversal2: Optional[float] = None
+    # Background heating rate (quanta/s)。経過時間に比例した連続加算 (2026-09-23
+    # 先生指示 = timestep ごと連続加算)。0.0 で無効 (opt-in、既存実験と互換)。
+    # 時計は計画時近似時計 (emit した op の duration の直列和、QCCDState.clock_us)。
+    # Mainz 参照値 (Kaushal arXiv:1912.04712, 抽出 = paper/NOTES_20260924_
+    # mainz_heating_params.md): axial 5.5 / trans1 4.8 / trans2 3.6 quanta/s
+    # → params/mainz_heating.json で指定。
+    # transversal2 の規約は per-op コストと同じ (None = 第 1 モードと同値)。
+    heating_rate_axial_per_s: float = 0.0
+    heating_rate_transversal_per_s: float = 0.0
+    heating_rate_transversal2_per_s: Optional[float] = None
     
     def shuttle_time(self, dst_chain_length: int = 0) -> float:
         """
@@ -156,6 +166,10 @@ class Estimator:
             counts=counts
         )
     
+    def operation_time(self, op: Operation) -> float:
+        """単一 op の所要時間 (μs)。計画時近似時計 (MovementPlanner) が使う公開 API。"""
+        return self._get_operation_time(op)[1]
+
     def _get_operation_time(self, op: Operation) -> tuple:
         """
         操作の種類と時間を返す

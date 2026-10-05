@@ -37,6 +37,24 @@ ParallelEstimator(tp) / Estimator(tp)              # 時間推定に反映
 | `phonon_cool_residual_axial` | 冷却後の残留 axial フォノン数 |
 | `phonon_cool_residual_transversal` | 冷却後の残留 transversal フォノン数 |
 
+## Background heating rate (時間比例加熱)
+
+経過時間比例の連続加熱 (quanta/s)。既定 0.0 = 無効 (opt-in、既存実験と互換)。
+
+| キー | 意味 |
+|---|---|
+| `heating_rate_axial_per_s` | axial モードの加熱レート |
+| `heating_rate_transversal_per_s` | 第 1 transverse モード (誤り参照モード) |
+| `heating_rate_transversal2_per_s` | 第 2 transverse モード (`null` = 第 1 と同値) |
+
+- 時計 = **計画時近似時計** (`QCCDState.clock_us`): planner が emit した op の
+  duration の直列和。直列和 ≥ 実時間なので加熱は過大側の近似
+  (1-LIZ では差が小さい)。冷却閾値ポリシーはこの加熱込みの値で判定する。
+- `mainz_heating.json` = Mainz 参照値 (Kaushal et al., arXiv:1912.04712 Fig.13、
+  抽出ノート = `paper/NOTES_20260924_mainz_heating_params.md`):
+  axial 5.5(3) @1.49MHz / trans1 4.8(2) @3.88MHz / trans2 3.6(1) @4.66MHz。
+  worse 側 (4.8) を無印 = 誤り参照モードに割り当てる規約。
+
 ## フォノンのモード構成 (2026-10-02 会議決定)
 
 1 イオンあたり **axial 1 本 + transverse 2 本の計 3 モード**を追跡する。

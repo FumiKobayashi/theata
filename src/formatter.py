@@ -266,14 +266,18 @@ def build_compile_result_json(
         at_gates_serial = []
         for entry in pd.get('at_gates', []):
             phonons = entry.get('phonons', {})
-            at_gates_serial.append({
+            serial = {
                 "gate": entry.get('gate'),
                 "phonons": {str(ion): list(val) for ion, val in phonons.items()},
-            })
+            }
+            if 'time_us' in entry:
+                serial["time_us"] = entry['time_us']
+            at_gates_serial.append(serial)
         out["phonon"] = {
             "max_axial": pd.get('max_axial', 0.0),
             "max_transversal": pd.get('max_transversal', 0.0),
             "max_transversal2": pd.get('max_transversal2', 0.0),
+            "planning_clock_us": pd.get('planning_clock_us', 0.0),
             "per_ion_axial": {
                 str(ion): val for ion, val in pd.get('per_ion_axial', {}).items()
             },

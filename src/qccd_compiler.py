@@ -25,6 +25,7 @@ from ast_def import (
 from dag_builder import DAG, DAGNode
 from stabilizer_partitioner import StabilizerPartition
 from sim_params import phonon_params_from
+from estimator import Estimator
 
 
 # ==========================================
@@ -338,6 +339,10 @@ class QCCDState:
     phonon_transversal: Dict[int, float] = field(default_factory=dict) # ion_id -> transverse mode 1
     phonon_transversal2: Dict[int, float] = field(default_factory=dict)  # ion_id -> transverse mode 2
     phonon_params: Optional[dict] = None  # フォノンパラメータ（Noneで無効化）
+    # 計画時近似時計 (μs): emit した op の duration の直列和。
+    # 直列和 ≥ 実時間 (並列スケジュール後) なので background heating は
+    # 過大側の近似になる (1-LIZ では差は小、multi-LIZ ではより保守的)。
+    clock_us: float = 0.0
     # MSゲート実行時のフォノン記録
     phonon_at_gates: List[dict] = field(default_factory=list)
     # 退避先の home 指定 (per-LIZ stream compile 用): ion_id -> home zone_id。
@@ -765,6 +770,30 @@ class QCCDState:
             self.phonon_transversal2[ion] = min(
                 self.phonon_transversal2.get(ion, 0.0), res_tr2)
 
+    def advance_time(self, duration_us: float):
+        """計画時近似時計を進め、background heating を全イオンに連続加算する。
+
+        heating rate (quanta/s) は phonon_params の heating_rate_*_per_s。
+        全レート 0 (既定) なら時計だけ進める = 既存挙動と完全互換。
+        一様加算なので merge の平均化と可換 (適用順序による誤差なし)。
+        """
+        if duration_us <= 0:
+            return
+        self.clock_us += duration_us
+        if not self.phonon_params:
+            return
+        r_ax = self.phonon_params.get('heating_rate_axial_per_s', 0.0)
+        r_tr = self.phonon_params.get('heating_rate_transversal_per_s', 0.0)
+        r_tr2 = self.phonon_params.get('heating_rate_transversal2_per_s', r_tr)
+        if not (r_ax or r_tr or r_tr2):
+            return
+        dt_s = duration_us * 1e-6
+        for ion in self.phonon_axial:
+            self.phonon_axial[ion] += r_ax * dt_s
+            self.phonon_transversal[ion] += r_tr * dt_s
+            self.phonon_transversal2[ion] = (
+                self.phonon_transversal2.get(ion, 0.0) + r_tr2 * dt_s)
+
     def can_execute_cool(self, op: CoolOp) -> bool:
         """CoolOp 実行可能か: coolant 指定時はそれが対象ゾーンに居ること"""
         if op.coolant_id < 0:
@@ -784,6 +813,8 @@ class QCCDState:
         self.phonon_at_gates.append({
             "gate": f"{gate_type}({','.join(str(t) for t in targets)})",
             "phonons": phonons,
+            # 計画時近似時計でのゲート開始時刻 (ゲート自身の duration は含まない)
+            "time_us": self.clock_us,
         })
 
     def get_ion_position_in_zone(self, ion_id: int) -> int:
@@ -798,6 +829,30 @@ class QCCDState:
 # ==========================================
 # Movement Planner
 # ==========================================
+
+class _ClockedOps(list):
+    """MovementPlanner.plan の出力リスト。
+
+    op が追加されるたびに計画時近似時計 (QCCDState.clock_us) を
+    その op の duration だけ進め、background heating を適用する。
+    plan 本体・planner v2 の後処理を含む全 emit 経路を 1 箇所で捕捉する。
+    冷却閾値ポリシー・record_gate_phonon は emit 済み op の加熱を
+    反映した値を見る (= 計画時判定が rate 寄与を見られる)。
+    """
+
+    def __init__(self, state: "QCCDState", op_timer: Estimator):
+        super().__init__()
+        self._state = state
+        self._op_timer = op_timer
+
+    def append(self, op):
+        super().append(op)
+        self._state.advance_time(self._op_timer.operation_time(op))
+
+    def extend(self, ops_iter):
+        for op in ops_iter:
+            self.append(op)
+
 
 class MovementPlanner:
     """
@@ -820,6 +875,8 @@ class MovementPlanner:
         self.config = config or CompilerConfig.baseline()
         # フォノン追跡パラメータ (外部注入可能。正本は estimator.TimeParameters)
         self.phonon_params = phonon_params_from(time_params)
+        # 計画時近似時計用の per-op duration (heating rate の連続加算に使う)
+        self._op_timer = Estimator(time_params)
         self._reorder_optimizer = None
         if self.config.memory_reorder:
             from memory_reorder_optimizer import MemoryReorderOptimizer
@@ -899,7 +956,8 @@ class MovementPlanner:
                 state.place_ion_any(ion_id, zone_id)
 
         dag.reset_execution()
-        ops: List[Operation] = []
+        # 出力リスト = 計画時近似時計のフック (op 追加ごとに background heating)
+        ops: List[Operation] = _ClockedOps(state, self._op_timer)
         max_iterations = len(dag.nodes) * 200
         self._last_state = state  # フォノン結果取得用
 
@@ -1908,6 +1966,9 @@ class QCCDCompiler:
                 'per_ion_transversal': dict(st.phonon_transversal),
                 'per_ion_transversal2': dict(st.phonon_transversal2),
                 'at_gates': st.phonon_at_gates,
+                # 計画時近似時計の終端値 (直列和 μs)。並列スケジュール後の
+                # 実時間とは別物 (こちらが常に長い)
+                'planning_clock_us': st.clock_us,
             }
 
         # 最終配置を抽出（zone_contents の順序を保持）

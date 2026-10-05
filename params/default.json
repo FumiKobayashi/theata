@@ -24,5 +24,8 @@
   "phonon_swap_transversal2": null,
   "phonon_cool_residual_axial": 0.0,
   "phonon_cool_residual_transversal": 0.0,
-  "phonon_cool_residual_transversal2": null
+  "phonon_cool_residual_transversal2": null,
+  "heating_rate_axial_per_s": 0.0,
+  "heating_rate_transversal_per_s": 0.0,
+  "heating_rate_transversal2_per_s": null
 }

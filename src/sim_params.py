@@ -110,6 +110,11 @@ def phonon_params_from(params: Optional[TimeParameters] = None) -> dict:
         'cool_residual_transversal': p.phonon_cool_residual_transversal,
         'cool_residual_transversal2': _tr2(p.phonon_cool_residual_transversal2,
                                            p.phonon_cool_residual_transversal),
+        'heating_rate_axial_per_s': p.heating_rate_axial_per_s,
+        'heating_rate_transversal_per_s': p.heating_rate_transversal_per_s,
+        'heating_rate_transversal2_per_s': _tr2(
+            p.heating_rate_transversal2_per_s,
+            p.heating_rate_transversal_per_s),
     }
 
 

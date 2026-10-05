@@ -54,7 +54,7 @@ LOOKUP_MODE = "strict"
 LUT_N_MAX = 20.0
 
 
-def compile_rounds_d(d, cfg_kwargs, rounds):
+def compile_rounds_d(d, cfg_kwargs, rounds, tp=None):
     forward, reverse, _ = DISTANCE_CIRCUITS[d]
     fwd_mod = __import__(forward)
     half = (len(fwd_mod.DATA_QUBITS) + 1) // 2
@@ -73,7 +73,7 @@ def compile_rounds_d(d, cfg_kwargs, rounds):
         if zone_contents is not None:
             placement = {ion: z for z in sorted(zone_contents)
                          for ion in zone_contents[z]}
-        cr = QCCDCompiler(arch, config=cfg).compile(dag, placement)
+        cr = QCCDCompiler(arch, config=cfg, time_params=tp).compile(dag, placement)
         results.append(cr)
         placement = cr.final_placement
         zone_contents = cr.final_zone_contents
@@ -102,7 +102,7 @@ def per_round_rate(p_total, rounds):
 
 def run_point(label, d, cfg_kwargs, rounds, shots, seed, params, tp,
               warn_on_clip, time_model="lockstep"):
-    results = compile_rounds_d(d, cfg_kwargs, rounds)
+    results = compile_rounds_d(d, cfg_kwargs, rounds, tp=tp)
     _, _, observable = DISTANCE_CIRCUITS[d]
 
     n_cools = sum(cr.stats.get('cools', 0) for cr in results)
@@ -188,6 +188,9 @@ def main():
     ap.add_argument('--threshold', type=float, default=5.0,
                     help='thr arm の cool_threshold_transversal')
     ap.add_argument('--cool-us', type=float, default=None)
+    ap.add_argument('--params', default=None,
+                    help='TimeParameters の JSON (例: params/mainz_heating.json)。'
+                         'heating rate 等がコンパイラのフォノン追跡に反映される')
     ap.add_argument('--rounds', type=int, default=3)
     ap.add_argument('--shots', type=int, default=20_000)
     ap.add_argument('--seed', type=int, default=2026)
@@ -206,8 +209,11 @@ def main():
     args = ap.parse_args()
 
     params = default_noise_params()
-    tp = (load_time_parameters(overrides={'cool': args.cool_us})
-          if args.cool_us is not None else None)
+    tp = None
+    if args.params is not None or args.cool_us is not None:
+        tp = load_time_parameters(
+            args.params,
+            overrides={'cool': args.cool_us} if args.cool_us is not None else None)
 
     arm_defs = {
         'no-cool': ('no-cool', {}),
