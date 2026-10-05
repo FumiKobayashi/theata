@@ -15,7 +15,7 @@ QCCD Compiler: DAG → Parallel Executable QCCD Native Circuit
   Scheduler:       ゾーン競合ルールのみを見てTimeStepに割り当て（配置を知らない）
 """
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from typing import List, Dict, Set, Optional, Tuple
 from ast_def import (
     Location, QubitDecl, Operation, TimeStep,
@@ -75,6 +75,20 @@ class CompilerConfig:
             - 1 回の合流で除去できるのは超過分の約 1/(k+1) (k = チェーン長)
               のため、閾値超が続く限り以降の MEASURE イベントでも繰り返し
               発動する
+        predictive_cool_threshold_transversal: 予測型 merge 冷却 (None で無効)
+            - 2026-10-02 会議プロトコル。2-pass コンパイル:
+              pass 1 (本トリガのみ無効) で測定窓ごとの per-ion 増分 Δn̄ を
+              記録し、pass 2 の各 MEASURE 直後 (= 次の生成元の測定開始前) に
+                予測値 = 現在値 + 次窓の Δ (pass 1)
+              が θ を超えるデータ量子ビットがあれば、その居る memory へ
+              merge 平均化冷却エピソード (冷 anc 合流 → 帰還 → 再冷却) を挿入
+            - 予測は「現在値 + 窓増分」の合成なので、窓内 op 列が pass 間で
+              同一である限り時間シフトに対して厳密。窓境界の整合は
+              測定イベント列 (ancilla 順) の一致で検証し、不一致時は
+              そのイベントの予測をスキップして警告する
+        predictive_cool_max_iters: 1 チェックポイントあたりのエピソード上限
+            (デフォルト 1)。予測が θ 超のままなら上限まで繰り返す
+            («複数回挟む» の粒度ノブ)
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
@@ -85,6 +99,8 @@ class CompilerConfig:
     cool_ancilla_after_measure_us: Optional[float] = None
     cool_ancilla_measure_interval: int = 1
     merge_cool_threshold_transversal: Optional[float] = None
+    predictive_cool_threshold_transversal: Optional[float] = None
+    predictive_cool_max_iters: int = 1
     # planner v2 (per-zone state machine + JIT staging, 2026-09-08 設計):
     #   planner: "v1" = 従来 MovementPlanner / "v2" = StateMachinePlanner
     #   prefetch_depth: 測定窓中に次需要イオンを memory→corridor temp へ
@@ -147,6 +163,16 @@ class CompilerConfig:
             raise ValueError(
                 f"merge_cool_threshold_transversal must be >= 0 or None, "
                 f"got {self.merge_cool_threshold_transversal}")
+        if (self.predictive_cool_threshold_transversal is not None
+                and self.predictive_cool_threshold_transversal < 0):
+            raise ValueError(
+                f"predictive_cool_threshold_transversal must be >= 0 or None, "
+                f"got {self.predictive_cool_threshold_transversal}")
+        if (not isinstance(self.predictive_cool_max_iters, int)
+                or self.predictive_cool_max_iters < 1):
+            raise ValueError(
+                f"predictive_cool_max_iters must be int >= 1, "
+                f"got {self.predictive_cool_max_iters}")
         if self.planner not in {"v1", "v2"}:
             raise ValueError(f"planner must be 'v1' or 'v2', got {self.planner}")
         if self.prefetch_depth not in (0, 1):
@@ -885,6 +911,22 @@ class MovementPlanner:
         self._last_ms_stabilizer: Optional[int] = None
         # アンシラ測定後冷却の周期カウンタ (MEASURE イベント数)
         self._measures_since_cool: int = 0
+        # --- 予測型 merge 冷却 (predictive_cool_threshold_transversal) ---
+        # 測定窓 = MEASURE イベント境界で区切った op 区間。
+        # pass 1 (記録モード) で窓ごとの per-ion Δtr を記録し、pass 2 は
+        # QCCDCompiler から注入された window_table を参照して
+        # 「現在値 + 次窓Δ > θ」の予測判定を行う。
+        self.window_table: Optional[List[dict]] = None   # pass 2 で参照
+        self._record_windows: bool = False               # pass 1 記録モード
+        self._recorded_windows: List[dict] = []
+        # 診断用: merge 冷却エピソードごとの構成 op (id のリスト)。
+        # スケジュール後に「エピソード実行中に測定/ゲートが走っていないか」を
+        # 検証するために使う (tests/test_cooling_schedule_rules.py)
+        self.episodes: List[List[int]] = []
+        self._window_start_tr: Dict[int, float] = {}
+        self._window_data_ions: Set[int] = set()
+        self._measure_event_idx: int = 0
+        self._measure_ancillas: Set[int] = set()
         self._preferred_stabilizer: Optional[int] = None
         # 複数 LIZ 用: ancilla_id -> liz_zone_id の partition（None なら単一 LIZ 互換動作）
         self.partition: Optional[StabilizerPartition] = None
@@ -983,6 +1025,15 @@ class MovementPlanner:
         # 測定待ちリスト: [(ancilla_ion_id, MeasureOp, node_id), ...]
         pending_measures: List[tuple] = []
 
+        # 予測型冷却: 測定窓トラッキングの初期化
+        self._measure_ancillas = set(measure_ancillas)
+        self._measure_event_idx = 0
+        self.episodes = []
+        if self._record_windows:
+            self._recorded_windows = []
+            self._window_data_ions = set()
+            self._window_start_tr = dict(state.phonon_transversal)
+
         for _ in range(max_iterations):
             if dag.is_complete() and not pending_measures:
                 break
@@ -1047,6 +1098,9 @@ class MovementPlanner:
                     # merge 平均化冷却: memory チェーンが閾値超なら
                     # 冷アンシラを合流させて平均化で冷やし、LIZ へ戻す
                     ops.extend(self._maybe_merge_cool_memory(node.operation, state))
+
+                    # 測定イベント境界: 予測型冷却の窓記録 / 予測判定
+                    ops.extend(self._on_measure_event(node.operation, state))
 
                     # Interleave: MS gate実行後にスタビライザを切り替え
                     if self.config.interleave and isinstance(node.operation, GateOp) and node.operation.type == 'MS':
@@ -1145,6 +1199,9 @@ class MovementPlanner:
 
         # merge 平均化冷却 (バッチ測定直後・RESET 前)
         ops.extend(self._maybe_merge_cool_memory(batch_measure, state))
+
+        # 測定イベント境界: 予測型冷却の窓記録 / 予測判定
+        ops.extend(self._on_measure_event(batch_measure, state))
 
         # バッチReset: MEASURE直後に無条件で全アンシラをRESET
         # アンシラはまだLIZ上にいるので搬送不要
@@ -1314,6 +1371,39 @@ class MovementPlanner:
         if not self.architecture.is_liz(liz):
             return []
 
+        target_zones = []
+        for mem in self._reachable_memory_zones(liz):
+            chain = state.zone_contents.get(mem.id, [])
+            if not chain:
+                continue
+            mean_tr = sum(state.phonon_transversal.get(i, 0.0)
+                          for i in chain) / len(chain)
+            if mean_tr > thr:
+                target_zones.append(mem.id)
+        return self._merge_cool_episode(ancilla, liz, target_zones, state)
+
+    def _reachable_memory_zones(self, liz: int):
+        """LIZ から他 LIZ を跨がず到達できる memory zone 列
+        (multi-LIZ 安全性: pass-through を構成的に回避)。"""
+        zones = []
+        for mem in self.architecture.get_memory_zones():
+            path = self.architecture.get_path(liz, mem.id)
+            if any(self.architecture.is_liz(w) and w != liz for w in path):
+                continue
+            zones.append(mem)
+        return zones
+
+    def _merge_cool_episode(self, ancilla: int, liz: int,
+                            target_zones: List[int],
+                            state: QCCDState) -> List[Operation]:
+        """merge 平均化冷却エピソード: 冷アンシラを target_zones の各 memory へ
+        順に合流させて平均化で冷やし、LIZ へ戻して再冷却する。
+
+        往復でイオン配置が元に戻るため、op 列の構造 (測定窓の中身) を
+        変えない — 予測型トリガの窓増分が pass 間で不変である根拠。
+        """
+        if not target_zones:
+            return []
         res_ax = state.phonon_params.get('cool_residual_axial', 0.0)
         res_tr = state.phonon_params.get('cool_residual_transversal', 0.0)
         res_tr2 = state.phonon_params.get('cool_residual_transversal2', res_tr)
@@ -1325,23 +1415,13 @@ class MovementPlanner:
                     or state.phonon_axial.get(anc, 0.0) > res_ax + 1e-12)
 
         ops: List[Operation] = []
-        for mem in self.architecture.get_memory_zones():
-            path = self.architecture.get_path(liz, mem.id)
-            if any(self.architecture.is_liz(w) and w != liz for w in path):
-                continue  # 他 LIZ の先にある memory は対象外
-            chain = state.zone_contents.get(mem.id, [])
-            if not chain:
-                continue
-            mean_tr = sum(state.phonon_transversal.get(i, 0.0)
-                          for i in chain) / len(chain)
-            if mean_tr <= thr:
-                continue
+        for mem_id in target_zones:
             # 1) アンシラを冷却 (前の側への合流で温まっていれば再冷却)
             if _ancilla_warm(ancilla):
                 state.cool_chain(liz)
                 ops.append(CoolOp(zone_id=liz, duration_us=cool_dur))
             # 2) memory へ合流 (merge の平均化で memory チェーンが冷える)
-            ops.extend(self._move_ion_to_zone(ancilla, mem.id, state))
+            ops.extend(self._move_ion_to_zone(ancilla, mem_id, state))
             # 3) LIZ へ帰還
             ops.extend(self._move_ion_to_zone(ancilla, liz, state))
         # 4) 熱シャトルとして吸った熱を捨てる: 最後の合流で温まったまま
@@ -1349,6 +1429,92 @@ class MovementPlanner:
         if ops and _ancilla_warm(ancilla):
             state.cool_chain(liz)
             ops.append(CoolOp(zone_id=liz, duration_us=cool_dur))
+        if ops:
+            self.episodes.append([id(o) for o in ops])
+        return ops
+
+    def _on_measure_event(self, op: Operation,
+                          state: QCCDState) -> List[Operation]:
+        """測定イベント境界の処理 (predictive_cool_threshold_transversal)。
+
+        呼び出し位置 = MEASURE emit + 測定後冷却ポリシー群の後
+        (= 次の生成元の測定窓が始まる直前のチェックポイント)。
+
+        - pass 1 (_record_windows): この境界で窓を閉じ、per-ion Δtr と
+          窓内 MS のデータ量子ビット集合を記録する
+        - pass 2 (window_table あり): 次窓の予測値 = 現在値 + Δ を評価し、
+          θ 超のデータ量子ビットが居る memory へ merge 冷却エピソードを挿入
+        """
+        if not isinstance(op, MeasureOp) or not op.targets:
+            return []
+        idx = self._measure_event_idx
+        self._measure_event_idx += 1
+
+        if self._record_windows:
+            end_tr = state.phonon_transversal
+            self._recorded_windows.append({
+                'ancillas': list(op.targets),
+                'delta_tr': {ion: end_tr.get(ion, 0.0)
+                             - self._window_start_tr.get(ion, 0.0)
+                             for ion in end_tr},
+                'data_ions': set(self._window_data_ions),
+            })
+            self._window_start_tr = dict(end_tr)
+            self._window_data_ions = set()
+            return []
+
+        if (self.config.predictive_cool_threshold_transversal is None
+                or self.window_table is None or not state.phonon_params):
+            return []
+        return self._maybe_predictive_cool(idx, op, state)
+
+    def _maybe_predictive_cool(self, idx: int, op: MeasureOp,
+                               state: QCCDState) -> List[Operation]:
+        """予測型 merge 冷却 (2026-10-02 プロトコル)。
+
+        予測値 = 現在値 (pass 2 が逐次シミュレートした正確な値) +
+                 次窓の増分 Δtr (pass 1 記録; 窓内 op 列が pass 間で同一なら
+                 時間シフトに対して厳密)。
+        予測が θ 超のデータ量子ビットの居る memory チェーンへ
+        merge 冷却エピソードを最大 predictive_cool_max_iters 回挿入する。
+        """
+        table = self.window_table
+        # 窓整合の検証: この測定イベントが pass 1 と同一列上にあるか
+        if idx >= len(table) or list(op.targets) != table[idx]['ancillas']:
+            import warnings
+            warnings.warn(
+                f"predictive cool: measure event #{idx} diverged from pass 1 "
+                f"(got {list(op.targets)}, expected "
+                f"{table[idx]['ancillas'] if idx < len(table) else 'EOF'}); "
+                f"disabling prediction for the rest of this compile")
+            self.window_table = None
+            return []
+        if idx + 1 >= len(table):
+            return []    # 最終窓の後にはゲートが無い
+
+        thr = self.config.predictive_cool_threshold_transversal
+        nxt = table[idx + 1]
+        delta, data_ions = nxt['delta_tr'], nxt['data_ions']
+        if not data_ions:
+            return []
+        ancilla = op.targets[0]
+        liz = state.locate(ancilla)
+        if not self.architecture.is_liz(liz):
+            return []
+
+        ops: List[Operation] = []
+        for _ in range(self.config.predictive_cool_max_iters):
+            hot = {i for i in data_ions
+                   if state.phonon_transversal.get(i, 0.0)
+                   + delta.get(i, 0.0) > thr}
+            if not hot:
+                break
+            target_zones = [mem.id for mem in self._reachable_memory_zones(liz)
+                            if hot & set(state.zone_contents.get(mem.id, []))]
+            episode = self._merge_cool_episode(ancilla, liz, target_zones, state)
+            if not episode:
+                break    # 対象が memory に居ない等 — 空回りを防ぐ
+            ops.extend(episode)
         return ops
 
     def _annotate_gate(self, op: Operation, state: QCCDState) -> Operation:
@@ -1358,6 +1524,11 @@ class MovementPlanner:
             # MSゲート実行時のフォノン数を記録
             if op.type == 'MS':
                 state.record_gate_phonon(op.type, op.targets)
+                if self._record_windows:
+                    # 予測型冷却 pass 1: 窓内のデータ量子ビットを収集
+                    self._window_data_ions.update(
+                        t for t in op.targets
+                        if t not in self._measure_ancillas)
             return GateOp(type=op.type, targets=op.targets, params=op.params, zone_id=liz_id)
         if isinstance(op, ResetOp) and op.targets:
             liz_id = state.locate(op.targets[0])
@@ -1915,6 +2086,7 @@ class QCCDCompiler:
         self.architecture = architecture
         self.config = config or CompilerConfig.baseline()
         self.config.validate()
+        self._time_params = time_params
         if self.config.planner == "v2":
             from planner_v2 import StateMachinePlanner
             self._planner = StateMachinePlanner(architecture, self.config,
@@ -1941,6 +2113,20 @@ class QCCDCompiler:
         """
         # 複数 LIZ 用の partition を MovementPlanner に渡す
         self._planner.partition = partition
+
+        # Phase 0: 予測型冷却の pass 1 — 本トリガのみ無効にした同一設定で
+        # コンパイルし、測定窓ごとの per-ion 増分テーブルを作って注入する。
+        # 予測 = 「pass 2 の現在値 + pass 1 の窓増分」(絶対値は使わない) なので
+        # pass 2 側の冷却挿入による時間シフトの影響を受けない。
+        if self.config.predictive_cool_threshold_transversal is not None:
+            cfg1 = replace(self.config,
+                           predictive_cool_threshold_transversal=None)
+            planner1 = type(self._planner)(self.architecture, cfg1,
+                                           time_params=self._time_params)
+            planner1.partition = partition
+            planner1._record_windows = True
+            planner1.plan(dag, dict(initial_placement))
+            self._planner.window_table = planner1._recorded_windows
 
         # Phase 1: 平坦なAtomicOp列を生成
         flat_ops = self._planner.plan(dag, initial_placement)

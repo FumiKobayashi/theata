@@ -179,14 +179,19 @@ def main():
     ap = argparse.ArgumentParser(
         description='E-C6: cooling-policy distance scan with Λ readout')
     ap.add_argument('--arms', nargs='+', default=['no-cool', 'anc', 'merge'],
-                    choices=['no-cool', 'anc', 'merge', 'thr'],
+                    choices=['no-cool', 'anc', 'merge', 'thr', 'pred'],
                     help='no-cool / anc (アンシラ測定後冷却) / merge (merge '
-                         '平均化冷却 + anc) / thr (ゲート前閾値チェーン冷却)')
+                         '平均化冷却 + anc) / thr (ゲート前閾値チェーン冷却) / '
+                         'pred (予測型 merge 冷却 + anc, 2-pass)')
     ap.add_argument('--distances', nargs='+', type=int, default=[3, 5, 7])
     ap.add_argument('--ancilla-cool-us', type=float, default=2000.0)
     ap.add_argument('--merge-cool-threshold', type=float, default=1.5)
     ap.add_argument('--threshold', type=float, default=5.0,
                     help='thr arm の cool_threshold_transversal')
+    ap.add_argument('--pred-threshold', type=float, default=1.5,
+                    help='pred arm の predictive_cool_threshold_transversal')
+    ap.add_argument('--pred-max-iters', type=int, default=1,
+                    help='pred arm の 1 チェックポイントあたりエピソード上限')
     ap.add_argument('--cool-us', type=float, default=None)
     ap.add_argument('--params', default=None,
                     help='TimeParameters の JSON (例: params/mainz_heating.json)。'
@@ -224,6 +229,10 @@ def main():
                    'cool_ancilla_after_measure_us': args.ancilla_cool_us}),
         'thr': (f"thr@{args.threshold:g}",
                 {'cool_threshold_transversal': args.threshold}),
+        'pred': (f"pred@{args.pred_threshold:g}x{args.pred_max_iters}+anc",
+                 {'predictive_cool_threshold_transversal': args.pred_threshold,
+                  'predictive_cool_max_iters': args.pred_max_iters,
+                  'cool_ancilla_after_measure_us': args.ancilla_cool_us}),
     }
     arms = [arm_defs[a] for a in args.arms]
     if args.planner == 'v2':
