@@ -89,6 +89,20 @@ class CompilerConfig:
         predictive_cool_max_iters: 1 チェックポイントあたりのエピソード上限
             (デフォルト 1)。予測が θ 超のままなら上限まで繰り返す
             («複数回挟む» の粒度ノブ)
+        resident_coolant_ids: LIZ 常駐 coolant のイオン ID リスト (None で無効)
+            - 2026-10-06 先生コメントの構成: LIZ を coolant + 測定アンシラで
+              埋め、データ量子ビットがゲートのために LIZ へ来るたびに
+              冷たい常駐チェーンとの merge 平均化で冷える (受動冷却)。
+              1 訪問の除去率 = m/(m+1) (m = 常駐冷イオン数) で
+              チェーン長に依存しない
+            - 指定イオンは回路外 (DAG に現れない)。初期配置で LIZ に置き、
+              全ての退避 (測定前退避・容量退避) から保護される
+            - 仮定: 測定・リセット中も coolant は LIZ に留まれる
+              (coolant は量子情報を持たないため検出光散乱は無害とみなす)
+        coolant_recool_us: 補助量子ビット (coolant + アンシラ) の一斉再冷却
+            (None で無効)。データが LIZ から退避され LIZ が補助のみに
+            なった時点で、残留値超なら指定時間の CoolOp を挿入する。
+            「補助量子ビットの冷却は一斉にできる」仮定の実装
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
@@ -101,6 +115,8 @@ class CompilerConfig:
     merge_cool_threshold_transversal: Optional[float] = None
     predictive_cool_threshold_transversal: Optional[float] = None
     predictive_cool_max_iters: int = 1
+    resident_coolant_ids: Optional[List[int]] = None
+    coolant_recool_us: Optional[float] = None
     # planner v2 (per-zone state machine + JIT staging, 2026-09-08 設計):
     #   planner: "v1" = 従来 MovementPlanner / "v2" = StateMachinePlanner
     #   prefetch_depth: 測定窓中に次需要イオンを memory→corridor temp へ
@@ -173,6 +189,17 @@ class CompilerConfig:
             raise ValueError(
                 f"predictive_cool_max_iters must be int >= 1, "
                 f"got {self.predictive_cool_max_iters}")
+        if self.resident_coolant_ids is not None:
+            if (not isinstance(self.resident_coolant_ids, (list, tuple))
+                    or not all(isinstance(i, int)
+                               for i in self.resident_coolant_ids)):
+                raise ValueError(
+                    f"resident_coolant_ids must be a list of int or None, "
+                    f"got {self.resident_coolant_ids}")
+        if self.coolant_recool_us is not None and self.coolant_recool_us <= 0:
+            raise ValueError(
+                f"coolant_recool_us must be > 0 or None, "
+                f"got {self.coolant_recool_us}")
         if self.planner not in {"v1", "v2"}:
             raise ValueError(f"planner must be 'v1' or 'v2', got {self.planner}")
         if self.prefetch_depth not in (0, 1):
@@ -431,8 +458,14 @@ class QCCDState:
             return False
         return all(self.locate(ion_id) == first_zone for ion_id in gate.targets)
 
-    def can_execute_reset_measure(self, op) -> bool:
-        """RESET/MEASURE実行可能か: 全ターゲットが同じLIZ、かつそのLIZにターゲット以外がいない"""
+    def can_execute_reset_measure(self, op, extra_allowed: Set[int] = None) -> bool:
+        """RESET/MEASURE実行可能か: 全ターゲットが同じLIZ、かつそのLIZに
+        ターゲット以外がいない。
+
+        extra_allowed (常駐 coolant 等) に含まれるイオンは同居を許す。
+        coolant は量子情報を持たないため検出光の散乱が無害、という
+        抽象化 (resident_coolant_ids の仮定)。
+        """
         targets = op.targets
         if not targets:
             return True
@@ -442,7 +475,8 @@ class QCCDState:
         if not all(self.locate(t) == first_zone for t in targets):
             return False
         liz_contents = set(self.zone_contents[first_zone])
-        return liz_contents == set(targets)
+        allowed = set(targets) | (extra_allowed or set())
+        return liz_contents <= allowed
 
     def get_liz_with_space(self) -> Optional[int]:
         for liz in self.architecture.get_liz_zones():
@@ -930,6 +964,8 @@ class MovementPlanner:
         self._preferred_stabilizer: Optional[int] = None
         # 複数 LIZ 用: ancilla_id -> liz_zone_id の partition（None なら単一 LIZ 互換動作）
         self.partition: Optional[StabilizerPartition] = None
+        # LIZ 常駐 coolant (resident_coolant_ids): 全退避から保護される回路外イオン
+        self._resident: Set[int] = set(self.config.resident_coolant_ids or [])
 
     def _get_target_liz_for_op(self, op: Operation) -> Optional[int]:
         """Partition で割り当てられた LIZ を返す。partition が None または
@@ -1171,12 +1207,13 @@ class MovementPlanner:
         else:
             target_liz = self.architecture.get_liz_zones()[0].id
 
-        # LIZ 上の非ターゲットイオンを退避
+        # LIZ 上の非ターゲットイオンを退避 (常駐 coolant は残留)
         ancilla_set = set(item[0] for item in pending_measures)
         extra_ions = [ion for ion in state.zone_contents.get(target_liz, [])
-                      if ion not in ancilla_set]
+                      if ion not in ancilla_set and ion not in self._resident]
         if extra_ions:
-            ops.extend(self._evict_ions(target_liz, extra_ions, state, protected=ancilla_set))
+            ops.extend(self._evict_ions(target_liz, extra_ions, state,
+                                        protected=ancilla_set | self._resident))
 
         # アンシラを全てLIZに集める
         for ancilla_id, _, _ in pending_measures:
@@ -1250,7 +1287,8 @@ class MovementPlanner:
             op = node.operation
             if isinstance(op, GateOp) and state.can_execute(op):
                 return True
-            if isinstance(op, (ResetOp, MeasureOp)) and state.can_execute_reset_measure(op):
+            if isinstance(op, (ResetOp, MeasureOp)) and state.can_execute_reset_measure(
+                    op, extra_allowed=self._resident):
                 return True
             if isinstance(op, CoolOp) and state.can_execute_cool(op):
                 return True
@@ -1433,6 +1471,38 @@ class MovementPlanner:
             self.episodes.append([id(o) for o in ops])
         return ops
 
+    def _maybe_recool_auxiliaries(self, liz: int,
+                                  state: QCCDState) -> List[Operation]:
+        """補助量子ビット (coolant + 測定アンシラ) の一斉再冷却
+        (coolant_recool_us ポリシー)。
+
+        LIZ がデータを含まず補助のみになった時点で、残留値を超えて
+        温まっていれば CoolOp を 1 つ挿入する。次に訪れるデータ量子
+        ビットが冷たい常駐チェーンと merge できるようにするための
+        「訪問間」冷却。CoolOp はゾーン一括なので一斉冷却の仮定と一致する。
+        """
+        dur = self.config.coolant_recool_us
+        if dur is None or not state.phonon_params:
+            return []
+        contents = state.zone_contents.get(liz, [])
+        if not contents:
+            return []
+        aux = self._measure_ancillas | self._resident
+        if not all(ion in aux for ion in contents):
+            return []
+        res_ax = state.phonon_params.get('cool_residual_axial', 0.0)
+        res_tr = state.phonon_params.get('cool_residual_transversal', 0.0)
+        res_tr2 = state.phonon_params.get('cool_residual_transversal2', res_tr)
+        warm = any(
+            state.phonon_transversal.get(i, 0.0) > res_tr + 1e-12
+            or state.phonon_transversal2.get(i, 0.0) > res_tr2 + 1e-12
+            or state.phonon_axial.get(i, 0.0) > res_ax + 1e-12
+            for i in contents)
+        if not warm:
+            return []
+        state.cool_chain(liz)
+        return [CoolOp(zone_id=liz, duration_us=dur)]
+
     def _on_measure_event(self, op: Operation,
                           state: QCCDState) -> List[Operation]:
         """測定イベント境界の処理 (predictive_cool_threshold_transversal)。
@@ -1593,12 +1663,15 @@ class MovementPlanner:
                     target_liz = state.locate(targets[0])
                     if isinstance(op, (ResetOp, MeasureOp)):
                         # RESET/MEASURE: ターゲット以外のイオンを退避（左右交互）
+                        # 常駐 coolant は残留
                         extra_ions = [
                             ion for ion in state.zone_contents.get(target_liz, [])
-                            if ion not in target_set
+                            if ion not in target_set and ion not in self._resident
                         ]
                         if extra_ions:
-                            return self._evict_ions(target_liz, extra_ions, state, protected=target_set)
+                            return self._evict_ions(
+                                target_liz, extra_ions, state,
+                                protected=target_set | self._resident)
                     # Gate or RESET/MEASURE with no extra ions → 実行可能なはず
                     continue
                 # 異なるLIZ → 一方のLIZに集める（バグ修正: 旧実装の無限ループを解消）
@@ -1644,12 +1717,14 @@ class MovementPlanner:
 
             result = []
 
-            # RESET/MEASUREの場合: LIZ上のターゲット以外を全て退避
+            # RESET/MEASUREの場合: LIZ上のターゲット以外を全て退避 (常駐 coolant は残留)
             if isinstance(op, (ResetOp, MeasureOp)):
                 extra_ions = [ion for ion in state.zone_contents.get(target_liz, [])
-                              if ion not in target_set]
+                              if ion not in target_set and ion not in self._resident]
                 if extra_ions:
-                    result.extend(self._evict_ions(target_liz, extra_ions, state, protected=target_set))
+                    result.extend(self._evict_ions(
+                        target_liz, extra_ions, state,
+                        protected=target_set | self._resident))
 
             # LIZに必要な空きを確保
             ions_to_bring = [ion for ion in targets if state.locate(ion) != target_liz]
@@ -1658,15 +1733,21 @@ class MovementPlanner:
 
             if free < needed:
                 liz_contents = list(state.zone_contents.get(target_liz, []))
-                candidates = [ion for ion in liz_contents if ion not in target_set]
+                candidates = [ion for ion in liz_contents
+                              if ion not in target_set and ion not in self._resident]
                 n_to_evict = needed - free
                 if len(candidates) < n_to_evict:
                     raise RuntimeError(
                         f"Cannot free {n_to_evict} spots in LIZ {target_liz}. "
-                        f"Only {len(candidates)} evictable ions (protected: {target_set})"
+                        f"Only {len(candidates)} evictable ions "
+                        f"(protected: {target_set | self._resident})"
                     )
                 result.extend(self._evict_ions(
-                    target_liz, candidates[:n_to_evict], state, protected=target_set))
+                    target_liz, candidates[:n_to_evict], state,
+                    protected=target_set | self._resident))
+                # 補助一斉再冷却: データ退避で LIZ が補助のみになった瞬間、
+                # 次のデータ到着前に冷たいチェーンへ戻す
+                result.extend(self._maybe_recool_auxiliaries(target_liz, state))
 
             # ターゲットイオンをLIZへ移動
             for ion in ions_to_bring:

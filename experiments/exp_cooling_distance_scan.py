@@ -64,6 +64,12 @@ def compile_rounds_d(d, cfg_kwargs, rounds, tp=None):
         fwd_mod.DATA_QUBITS, fwd_mod.ANCILLA_QUBITS, fwd_mod)
 
     cfg = CompilerConfig(**cfg_kwargs)
+    # 常駐 coolant (回路外イオン) は LIZ に初期配置する
+    if cfg.resident_coolant_ids:
+        liz_id = arch.get_liz_zones()[0].id
+        initial = dict(initial)
+        for cid in cfg.resident_coolant_ids:
+            initial[cid] = liz_id
     results = []
     placement, zone_contents = initial, None
     for r in range(1, rounds + 1):
@@ -179,10 +185,12 @@ def main():
     ap = argparse.ArgumentParser(
         description='E-C6: cooling-policy distance scan with Λ readout')
     ap.add_argument('--arms', nargs='+', default=['no-cool', 'anc', 'merge'],
-                    choices=['no-cool', 'anc', 'merge', 'thr', 'pred'],
+                    choices=['no-cool', 'anc', 'merge', 'thr', 'pred',
+                             'resident', 'resident-pred'],
                     help='no-cool / anc (アンシラ測定後冷却) / merge (merge '
                          '平均化冷却 + anc) / thr (ゲート前閾値チェーン冷却) / '
-                         'pred (予測型 merge 冷却 + anc, 2-pass)')
+                         'pred (予測型 merge 冷却 + anc, 2-pass) / '
+                         'resident (LIZ 常駐 coolant + 補助一斉再冷却 + anc)')
     ap.add_argument('--distances', nargs='+', type=int, default=[3, 5, 7])
     ap.add_argument('--ancilla-cool-us', type=float, default=2000.0)
     ap.add_argument('--merge-cool-threshold', type=float, default=1.5)
@@ -192,6 +200,10 @@ def main():
                     help='pred arm の predictive_cool_threshold_transversal')
     ap.add_argument('--pred-max-iters', type=int, default=1,
                     help='pred arm の 1 チェックポイントあたりエピソード上限')
+    ap.add_argument('--resident-coolants', type=int, default=2,
+                    help='resident arm の LIZ 常駐 coolant 数')
+    ap.add_argument('--coolant-recool-us', type=float, default=400.0,
+                    help='resident arm の補助一斉再冷却時間 (μs)')
     ap.add_argument('--cool-us', type=float, default=None)
     ap.add_argument('--params', default=None,
                     help='TimeParameters の JSON (例: params/mainz_heating.json)。'
@@ -233,6 +245,20 @@ def main():
                  {'predictive_cool_threshold_transversal': args.pred_threshold,
                   'predictive_cool_max_iters': args.pred_max_iters,
                   'cool_ancilla_after_measure_us': args.ancilla_cool_us}),
+        'resident': (f"res@{args.resident_coolants}c+anc",
+                     {'resident_coolant_ids': [9000 + i for i in
+                                               range(args.resident_coolants)],
+                      'coolant_recool_us': args.coolant_recool_us,
+                      'cool_ancilla_after_measure_us': args.ancilla_cool_us}),
+        'resident-pred': (
+            f"res@{args.resident_coolants}c+pred@{args.pred_threshold:g}"
+            f"x{args.pred_max_iters}",
+            {'resident_coolant_ids': [9000 + i for i in
+                                      range(args.resident_coolants)],
+             'coolant_recool_us': args.coolant_recool_us,
+             'predictive_cool_threshold_transversal': args.pred_threshold,
+             'predictive_cool_max_iters': args.pred_max_iters,
+             'cool_ancilla_after_measure_us': args.ancilla_cool_us}),
     }
     arms = [arm_defs[a] for a in args.arms]
     if args.planner == 'v2':
