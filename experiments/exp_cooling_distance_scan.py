@@ -186,7 +186,7 @@ def main():
         description='E-C6: cooling-policy distance scan with Λ readout')
     ap.add_argument('--arms', nargs='+', default=['no-cool', 'anc', 'merge'],
                     choices=['no-cool', 'anc', 'merge', 'thr', 'pred',
-                             'resident', 'resident-pred'],
+                             'resident', 'resident-pred', 'pred-data'],
                     help='no-cool / anc (アンシラ測定後冷却) / merge (merge '
                          '平均化冷却 + anc) / thr (ゲート前閾値チェーン冷却) / '
                          'pred (予測型 merge 冷却 + anc, 2-pass) / '
@@ -258,6 +258,14 @@ def main():
              'coolant_recool_us': args.coolant_recool_us,
              'predictive_cool_threshold_transversal': args.pred_threshold,
              'predictive_cool_max_iters': args.pred_max_iters,
+             'cool_ancilla_after_measure_us': args.ancilla_cool_us}),
+        'pred-data': (
+            f"res@{args.resident_coolants}c+predD@{args.pred_threshold:g}",
+            {'resident_coolant_ids': [9000 + i for i in
+                                      range(args.resident_coolants)],
+             'coolant_recool_us': args.coolant_recool_us,
+             'predictive_cool_threshold_transversal': args.pred_threshold,
+             'predictive_cool_actuator': 'data',
              'cool_ancilla_after_measure_us': args.ancilla_cool_us}),
     }
     arms = [arm_defs[a] for a in args.arms]

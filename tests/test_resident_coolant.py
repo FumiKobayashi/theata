@@ -100,6 +100,46 @@ def test_passive_cooling_lowers_gate_phonons():
     print("test_passive_cooling_lowers_gate_phonons: OK")
 
 
+def test_data_actuator_moves_data_not_ancilla():
+    """データ移動型 (predictive_cool_actuator='data'): エピソードで動くのは
+    予測超過データイオンのみで、帰還後も配置整合・排他ルールを守る"""
+    from qccd_compiler import QCCDCompiler as _QC
+    arch = QCCDArchitecture.simple_mlm()
+    dag = DAGBuilder(parse(CODE)).build()
+    initial = {0: 1, 1: 1, 2: 1, 3: 1, 8: 1, 9: 1}
+    for c in COOLANTS:
+        initial[c] = LIZ
+    cfg = CompilerConfig(resident_coolant_ids=COOLANTS,
+                         coolant_recool_us=400.0,
+                         predictive_cool_threshold_transversal=0.0,
+                         predictive_cool_actuator='data',
+                         cool_ancilla_after_measure_us=2000.0)
+    comp = _QC(arch, config=cfg)
+    res = comp.compile(dag, dict(initial))
+
+    episodes = comp._planner.episodes
+    assert episodes, "データ訪問エピソードが発動するはず"
+    ep_ids = {i for ep in episodes for i in ep}
+    ep_ops = [op for op in res.flat_ops if id(op) in ep_ids]
+    shuttled = {op.target for op in ep_ops if isinstance(op, ShuttleOp)}
+    data_ions = {0, 1, 2, 3}
+    assert shuttled, "エピソード内にデータの Shuttle があるはず"
+    assert shuttled <= data_ions, \
+        f"エピソードで動いて良いのはデータのみ: {shuttled}"
+
+    # 排他ルール (Rule A/B) と validator
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_cooling_schedule_rules import check_cooling_schedule_rules
+    rep = check_cooling_schedule_rules(res.timesteps, episodes)
+    assert rep['same_ts'] == [], rep['same_ts']
+    assert rep['span'] == [], rep['span']
+
+    v = Validator(arch).validate(res.flat_ops, initial)
+    assert v.is_valid, v.summary()
+    print(f"test_data_actuator_moves_data_not_ancilla: OK "
+          f"({len(episodes)} visits, moved={sorted(shuttled)})")
+
+
 def test_no_resident_is_backward_compatible():
     """resident 無効 (既定) では op 列が従来と完全一致"""
     arch = QCCDArchitecture.simple_mlm()
@@ -117,5 +157,6 @@ def test_no_resident_is_backward_compatible():
 if __name__ == "__main__":
     test_resident_stays_and_validates()
     test_passive_cooling_lowers_gate_phonons()
+    test_data_actuator_moves_data_not_ancilla()
     test_no_resident_is_backward_compatible()
     print("\nAll resident coolant tests passed.")

@@ -103,6 +103,15 @@ class CompilerConfig:
             (None で無効)。データが LIZ から退避され LIZ が補助のみに
             なった時点で、残留値超なら指定時間の CoolOp を挿入する。
             「補助量子ビットの冷却は一斉にできる」仮定の実装
+        predictive_cool_actuator: 予測型トリガのアクチュエータ (2026-10-07 設計合意)
+            - "ancilla" (既定): 測定アンシラを熱シャトルとして memory チェーンへ
+              往復させるエピソード (チェーン一括冷却)
+            - "data": 予測超過データイオン自身を 1 個ずつ LIZ へ搬送し、
+              冷たい常駐チェーン (coolant + アンシラ) との merge 平均化で
+              冷やして元の memory ゾーンへ戻す (per-ion 冷却)。
+              合意事項: 帰還はチェーン端 (順序は保存しない)、冷却訪問と
+              ゲート訪問は別往復、反復なし (1 訪問で除去率 m/(m+1))。
+              訪問間の補助再冷却は coolant_recool_us を使う
     """
     gate_selection: str = "min_id"
     memory_reorder: bool = False
@@ -117,6 +126,7 @@ class CompilerConfig:
     predictive_cool_max_iters: int = 1
     resident_coolant_ids: Optional[List[int]] = None
     coolant_recool_us: Optional[float] = None
+    predictive_cool_actuator: str = "ancilla"
     # planner v2 (per-zone state machine + JIT staging, 2026-09-08 設計):
     #   planner: "v1" = 従来 MovementPlanner / "v2" = StateMachinePlanner
     #   prefetch_depth: 測定窓中に次需要イオンを memory→corridor temp へ
@@ -200,6 +210,10 @@ class CompilerConfig:
             raise ValueError(
                 f"coolant_recool_us must be > 0 or None, "
                 f"got {self.coolant_recool_us}")
+        if self.predictive_cool_actuator not in {"ancilla", "data"}:
+            raise ValueError(
+                f"predictive_cool_actuator must be 'ancilla' or 'data', "
+                f"got {self.predictive_cool_actuator}")
         if self.planner not in {"v1", "v2"}:
             raise ValueError(f"planner must be 'v1' or 'v2', got {self.planner}")
         if self.prefetch_depth not in (0, 1):
@@ -1572,6 +1586,9 @@ class MovementPlanner:
         if not self.architecture.is_liz(liz):
             return []
 
+        if self.config.predictive_cool_actuator == "data":
+            return self._data_visit_episodes(data_ions, delta, thr, liz, state)
+
         ops: List[Operation] = []
         for _ in range(self.config.predictive_cool_max_iters):
             hot = {i for i in data_ions
@@ -1585,6 +1602,50 @@ class MovementPlanner:
             if not episode:
                 break    # 対象が memory に居ない等 — 空回りを防ぐ
             ops.extend(episode)
+        return ops
+
+    def _data_visit_episodes(self, data_ions, delta, thr, liz: int,
+                             state: QCCDState) -> List[Operation]:
+        """データ移動型アクチュエータ (2026-10-07 設計合意)。
+
+        予測超過のデータイオンを 1 個ずつ LIZ へ搬送し、冷たい常駐
+        チェーン (coolant + アンシラ) との merge 平均化で冷やして
+        元の memory ゾーンへ戻す (帰還はチェーン端、順序は保存しない)。
+        各訪問の前に補助が温まっていれば一斉再冷却を挟む。
+        イオンごとに予測を再評価する (先行イオンの帰還 merge が
+        チェーンを平均化で冷やし、後続が不要になることがあるため)。
+        """
+        reachable = {mem.id for mem in self._reachable_memory_zones(liz)}
+        ops: List[Operation] = []
+        # 走査順を決定的にする (予測超過量の大きい順 → 同値は id 順)
+        order = sorted(
+            data_ions,
+            key=lambda i: (-(state.phonon_transversal.get(i, 0.0)
+                             + delta.get(i, 0.0)), i))
+        for ion in order:
+            predicted = (state.phonon_transversal.get(ion, 0.0)
+                         + delta.get(ion, 0.0))
+            if predicted <= thr:
+                continue
+            src = state.locate(ion)
+            if src == liz or src not in reachable:
+                continue    # LIZ 在中 / 他 LIZ の先に居るイオンは対象外
+            episode: List[Operation] = []
+            # 1) 補助一斉再冷却 (前の訪問者の熱を捨て、冷たいプールで迎える)
+            episode.extend(self._maybe_recool_auxiliaries(liz, state))
+            # 2) 搬入 (LIZ への merge = 平均化冷却)
+            episode.extend(self._move_ion_to_zone(ion, liz, state))
+            # 3) 帰還 (元の memory ゾーンのチェーン端へ)
+            episode.extend(self._move_ion_to_zone(ion, src, state))
+            if episode:
+                ops.extend(episode)
+                self.episodes.append([id(o) for o in episode])
+        # 4) 最後の訪問者が残した熱を捨てる
+        tail = self._maybe_recool_auxiliaries(liz, state)
+        if tail:
+            ops.extend(tail)
+            if self.episodes:
+                self.episodes[-1].extend(id(o) for o in tail)
         return ops
 
     def _annotate_gate(self, op: Operation, state: QCCDState) -> Operation:
