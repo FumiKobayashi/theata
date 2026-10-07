@@ -1459,7 +1459,15 @@ class MovementPlanner:
         res_ax = state.phonon_params.get('cool_residual_axial', 0.0)
         res_tr = state.phonon_params.get('cool_residual_transversal', 0.0)
         res_tr2 = state.phonon_params.get('cool_residual_transversal2', res_tr)
-        cool_dur = self.config.cool_ancilla_after_measure_us
+        # エピソード境界の冷却は「LIZ の補助をゾーン一括で冷やす」操作で、
+        # 補助一斉再冷却 (coolant_recool_us) と物理的に同一。
+        # coolant_recool_us が設定されていればそれを使い、アクチュエータ間で
+        # cool op あたりの時間を揃える (2026-10-07、公平比較のため)。
+        # 未設定 (常駐なしの merge/pred arm) は従来通り
+        # cool_ancilla_after_measure_us。
+        cool_dur = (self.config.coolant_recool_us
+                    if self.config.coolant_recool_us is not None
+                    else self.config.cool_ancilla_after_measure_us)
 
         def _ancilla_warm(anc: int) -> bool:
             return (state.phonon_transversal.get(anc, 0.0) > res_tr + 1e-12
