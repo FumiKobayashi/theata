@@ -107,9 +107,20 @@ def per_round_rate(p_total, rounds):
 
 
 def run_point(label, d, cfg_kwargs, rounds, shots, seed, params, tp,
-              warn_on_clip, time_model="lockstep"):
+              warn_on_clip, time_model="lockstep", ideal_phonon=False):
     results = compile_rounds_d(d, cfg_kwargs, rounds, tp=tp)
     _, _, observable = DISTANCE_CIRCUITS[d]
+
+    if ideal_phonon:
+        # 加熱なし下限: コンパイラの時間構造 (輸送・idle dephasing・SPAM) は
+        # そのままに、全ゲートのフォノンを 0 に置換して LUT を引く。
+        # p_L のうち加熱由来の寄与を分離するための対照行。
+        for cr in results:
+            pd = cr.phonon_data or {}
+            pd['at_gates'] = [
+                {**g, 'phonons': {ion: tuple(0.0 for _ in v)
+                                  for ion, v in g['phonons'].items()}}
+                for g in pd.get('at_gates', [])]
 
     n_cools = sum(cr.stats.get('cools', 0) for cr in results)
     if time_model == "event":
@@ -219,6 +230,12 @@ def main():
     ap.add_argument('--v2-sort-horizon', type=int, default=2)
     ap.add_argument('--v2-sort-trigger', default='measure',
                     choices=['measure', 'delivery', 'both'])
+    ap.add_argument('--cool-residual', type=float, default=None,
+                    help='冷却後の残留フォノン数 (axial/tr1/tr2 すべてに適用)。'
+                         '抽象 Cool 命令の (t, n̄_res) 要件スイープ用')
+    ap.add_argument('--ideal-phonon', action='store_true',
+                    help='全ゲートのフォノンを 0 に置換して LUT を引く '
+                         '(加熱なし下限。時間構造・idle dephasing は不変)')
     ap.add_argument('--time-model', choices=['lockstep', 'event'],
                     default='lockstep',
                     help='event = イベント駆動時間で wall と per-ion idle '
@@ -227,10 +244,15 @@ def main():
 
     params = default_noise_params()
     tp = None
-    if args.params is not None or args.cool_us is not None:
-        tp = load_time_parameters(
-            args.params,
-            overrides={'cool': args.cool_us} if args.cool_us is not None else None)
+    overrides = {}
+    if args.cool_us is not None:
+        overrides['cool'] = args.cool_us
+    if args.cool_residual is not None:
+        overrides['phonon_cool_residual_axial'] = args.cool_residual
+        overrides['phonon_cool_residual_transversal'] = args.cool_residual
+        overrides['phonon_cool_residual_transversal2'] = args.cool_residual
+    if args.params is not None or overrides:
+        tp = load_time_parameters(args.params, overrides=overrides or None)
 
     arm_defs = {
         'no-cool': ('no-cool', {}),
@@ -279,6 +301,11 @@ def main():
     print(f"E-C6 1-LIZ distance scan: d={args.distances}, rounds={args.rounds}, "
           f"shots={args.shots}, arms={[a[0] for a in arms]}")
 
+    if args.ideal_phonon:
+        arms = [(f"{label}+n0", kw) for label, kw in arms]
+    if args.cool_residual is not None:
+        arms = [(f"{label}@r{args.cool_residual:g}", kw) for label, kw in arms]
+
     rows = []
     for label, kw in arms:
         print(f"\n[{label}]")
@@ -286,7 +313,8 @@ def main():
             rows.append(run_point(label, d, kw, args.rounds, args.shots,
                                   args.seed, params, tp,
                                   warn_on_clip=not args.quiet_clip,
-                                  time_model=args.time_model))
+                                  time_model=args.time_model,
+                                  ideal_phonon=args.ideal_phonon))
 
     # Λ の集計と要約
     print(f"\n{'='*78}")
