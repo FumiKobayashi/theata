@@ -86,12 +86,9 @@ def compile_rounds_d(d, cfg_kwargs, rounds, tp=None):
     return results
 
 
-def gate_phonon_stats(results):
+def gate_phonon_stats(all_gates):
     """MS ゲートごとの (対象イオン中の最大 transversal) の系列から cap / avg。"""
-    per_gate = []
-    for cr in results:
-        for g in (cr.phonon_data or {}).get('at_gates', []):
-            per_gate.append(max(p[1] for p in g['phonons'].values()))
+    per_gate = [max(p[1] for p in g['phonons'].values()) for g in all_gates]
     arr = np.array(per_gate)
     return {
         'n_ms': int(arr.size),
@@ -107,20 +104,37 @@ def per_round_rate(p_total, rounds):
 
 
 def run_point(label, d, cfg_kwargs, rounds, shots, seed, params, tp,
-              warn_on_clip, time_model="lockstep", ideal_phonon=False):
-    results = compile_rounds_d(d, cfg_kwargs, rounds, tp=tp)
+              warn_on_clip, time_model="lockstep", ideal_phonon=False,
+              nbar_cap=None, nbar_cap_mode="clamp", precompiled=None):
+    results = (precompiled if precompiled is not None
+               else compile_rounds_d(d, cfg_kwargs, rounds, tp=tp))
     _, _, observable = DISTANCE_CIRCUITS[d]
+
+    all_gates = []
+    for cr in results:
+        all_gates.extend((cr.phonon_data or {}).get('at_gates', []))
 
     if ideal_phonon:
         # 加熱なし下限: コンパイラの時間構造 (輸送・idle dephasing・SPAM) は
         # そのままに、全ゲートのフォノンを 0 に置換して LUT を引く。
         # p_L のうち加熱由来の寄与を分離するための対照行。
-        for cr in results:
-            pd = cr.phonon_data or {}
-            pd['at_gates'] = [
-                {**g, 'phonons': {ion: tuple(0.0 for _ in v)
-                                  for ion, v in g['phonons'].items()}}
-                for g in pd.get('at_gates', [])]
+        nbar_cap = 0.0
+    if nbar_cap is not None:
+        # n̄ cap 補正: 実験はそのまま実行し、記録上のフォノンを補正してから
+        # LUT を引く (全 3 モード一律)。
+        #   clamp: min(v, cap) — 最初 0 から蓄積し cap で頭打ち
+        #          (cap=0 は ideal_phonon、cap=inf はベースラインと厳密一致)
+        #   const: v ≡ cap — 最初から cap に張り付いた定常パターン
+        #          (10/15 西尾先生指定の第 2 アーム。clamp との対が
+        #           立ち上がり過渡と定常の上下界を与える)
+        if nbar_cap_mode == "const":
+            fix = lambda v: nbar_cap
+        else:
+            fix = lambda v: min(v, nbar_cap)
+        all_gates = [
+            {**g, 'phonons': {ion: tuple(fix(v) for v in vs)
+                              for ion, vs in g['phonons'].items()}}
+            for g in all_gates]
 
     n_cools = sum(cr.stats.get('cools', 0) for cr in results)
     if time_model == "event":
@@ -131,11 +145,7 @@ def run_point(label, d, cfg_kwargs, rounds, shots, seed, params, tp,
         pe = ParallelEstimator(tp) if tp else ParallelEstimator()
         round_ms = [pe.estimate(cr.timesteps).total_time / 1000
                     for cr in results]
-    stats = gate_phonon_stats(results)
-
-    all_gates = []
-    for cr in results:
-        all_gates.extend((cr.phonon_data or {}).get('at_gates', []))
+    stats = gate_phonon_stats(all_gates)
 
     circuit = recompile_multi_round(results, observable_column=observable)
     det, obs = circuit.compile_detector_sampler().sample(
@@ -167,6 +177,7 @@ def run_point(label, d, cfg_kwargs, rounds, shots, seed, params, tp,
           f"[{lo:.5f},{hi:.5f}] ({n_err}/{shots}){clip_note}")
     return {
         'label': label, 'd': d, 'config': cfg_kwargs, 'rounds': rounds,
+        'nbar_cap': nbar_cap,
         'n_cools': n_cools, 'round_ms': round_ms, 'wall_ms': sum(round_ms),
         **stats,
         'n_err': n_err, 'shots': shots,
@@ -236,11 +247,24 @@ def main():
     ap.add_argument('--ideal-phonon', action='store_true',
                     help='全ゲートのフォノンを 0 に置換して LUT を引く '
                          '(加熱なし下限。時間構造・idle dephasing は不変)')
+    ap.add_argument('--nbar-cap', nargs='+', type=float, default=None,
+                    metavar='CAP',
+                    help='n̄ cap スイープ: 実験はそのまま実行し、記録上 cap 超過分を '
+                         'cap に補正してから LUT を引く (LER vs n̄ cap 用、通常 '
+                         '--arms no-cool と併用)。arm×d ごとにコンパイルを 1 回に '
+                         'まとめて cap を一括評価。inf 可 (=補正なしベースライン)')
+    ap.add_argument('--nbar-cap-mode', choices=['clamp', 'const'],
+                    default='clamp',
+                    help='clamp = min(n̄, cap) (初期 0 から蓄積・頭打ち) / '
+                         'const = n̄ ≡ cap (最初から cap の定常パターン)')
     ap.add_argument('--time-model', choices=['lockstep', 'event'],
                     default='lockstep',
                     help='event = イベント駆動時間で wall と per-ion idle '
                          '(dephasing) を評価する')
     args = ap.parse_args()
+
+    if args.nbar_cap and args.ideal_phonon:
+        ap.error('--nbar-cap と --ideal-phonon は併用不可 (cap 0 が同義)')
 
     params = default_noise_params()
     tp = None
@@ -310,18 +334,30 @@ def main():
     for label, kw in arms:
         print(f"\n[{label}]")
         for d in args.distances:
-            rows.append(run_point(label, d, kw, args.rounds, args.shots,
-                                  args.seed, params, tp,
-                                  warn_on_clip=not args.quiet_clip,
-                                  time_model=args.time_model,
-                                  ideal_phonon=args.ideal_phonon))
+            if args.nbar_cap:
+                pre = compile_rounds_d(d, kw, args.rounds, tp=tp)
+                tag = 'cap' if args.nbar_cap_mode == 'clamp' else 'const'
+                for cap in args.nbar_cap:
+                    rows.append(run_point(
+                        f"{label}@{tag}{cap:g}", d, kw, args.rounds,
+                        args.shots, args.seed, params, tp,
+                        warn_on_clip=not args.quiet_clip,
+                        time_model=args.time_model,
+                        nbar_cap=cap, nbar_cap_mode=args.nbar_cap_mode,
+                        precompiled=pre))
+            else:
+                rows.append(run_point(label, d, kw, args.rounds, args.shots,
+                                      args.seed, params, tp,
+                                      warn_on_clip=not args.quiet_clip,
+                                      time_model=args.time_model,
+                                      ideal_phonon=args.ideal_phonon))
 
     # Λ の集計と要約
     print(f"\n{'='*78}")
     print("  summary (cap/avg = gate-time transversal n̄, p_L = over "
           f"{args.rounds} rounds, Λ = p_L(d)/p_L(d+2), 1σ CI)")
     lambdas = []
-    for label, _ in arms:
+    for label in dict.fromkeys(r['label'] for r in rows):
         by_d = {r['d']: r for r in rows if r['label'] == label}
         line = f"  {label:12s}"
         for d in args.distances:
