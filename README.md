@@ -1,6 +1,8 @@
 # Transport-Aware Syndrome Measurement Circuit Compiler for 1D QCCD Architecture
 
 A compiler and simulator for syndrome measurement circuits on a one-dimensional QCCD (quantum charge-coupled device) architecture.
+It compiles surface-code syndrome measurement circuits into transport-level instruction sequences, tracks the motional heating of every ion through transport and elapsed time, and evaluates logical error rates through a Stim/PyMatching noise pipeline whose gate error rates depend on the tracked phonon numbers.
+Cooling strategies (threshold-triggered, predictive, and LIZ-resident coolants) are configurable compiler policies.
 
 ## Project Layout
 
@@ -134,19 +136,43 @@ result2 = compiler.compile(dag2, ordered_placement)
 | `measure_batch_size` | int | `1` | Measure batch size (2+ enables batching) |
 | `interleave` | bool | `False` | Interleaved stabilizer execution |
 | `eviction_strategy` | str | `"balanced"` | Eviction strategy out of the LIZ (`"balanced"` or `"nearest"`) |
+| `cool_threshold_transversal` | float? | `None` | Cool the gate chain before an MS gate when its transverse phonon number exceeds this threshold |
+| `cool_ancilla_after_measure_us` | float? | `None` | Deep re-cooling of the measurement ancilla right after each Measure (duration in μs) |
+| `cool_ancilla_measure_interval` | int | `1` | Apply the post-measurement cooling once every N measurements |
+| `merge_cool_threshold_transversal` | float? | `None` | Merge-averaging cooling: shuttle a cold ancilla into a hot memory chain when its mean phonon number exceeds this threshold |
+| `predictive_cool_threshold_transversal` | float? | `None` | Predictive trigger (two-pass compile): insert cooling cycles when the predicted phonon number of upcoming data qubits exceeds this threshold |
+| `predictive_cool_max_iters` | int | `1` | Maximum number of cooling cycles per trigger point |
+| `predictive_cool_actuator` | str | `"ancilla"` | Which ion moves in a cooling cycle: the ancilla into the chain (`"ancilla"`) or the hot data qubit to the LIZ (`"data"`) |
+| `resident_coolant_ids` | list? | `None` | LIZ-resident coolant ions; visiting data qubits cool passively by merge averaging |
+| `coolant_recool_us` | float? | `None` | Batch re-cooling of the auxiliary ions (coolants + ancilla) whenever the LIZ holds only auxiliaries |
+| `planner` | str | `"v1"` | Movement planner: `"v1"` (baseline) or `"v2"` (per-zone state machine with JIT staging) |
+| `prefetch_depth` | int | `1` | v2: how many next-demand ions to stage ahead during a measurement window |
+| `v2_sort_horizon` | int | `4` | v2: how many upcoming ions each memory zone pre-sorts toward the LIZ end |
+| `v2_sort_trigger` | str | `"measure"` | v2: when pre-sorting is emitted (`"measure"`, `"delivery"`, or `"both"`) |
 
 ## Modules in src/
 
 | File | Role |
 |---------|------|
 | `qccd_parser.py` | Parser for the custom DSL (built on Lark) |
-| `ast_def.py` | Type definitions for operations (GateOp, SplitOp, ShuttleOp, ...) |
+| `ast_def.py` | Type definitions for operations (GateOp, SplitOp, ShuttleOp, CoolOp, ...) |
 | `dag_builder.py` | Quantum circuit → DAG conversion, stabilizer detection, hook-error edge injection |
-| `qccd_compiler.py` | MovementPlanner + Scheduler + QCCDState (compiler core) |
+| `qccd_compiler.py` | MovementPlanner + Scheduler + QCCDState with phonon tracking and cooling policies (compiler core) |
+| `planner_v2.py` | Alternative movement planner (per-zone state machine with JIT staging) |
+| `per_liz_compiler.py` | Multi-LIZ compiler (per-LIZ instruction streams with planned synchronization) |
+| `spatial_partitioner.py`, `stabilizer_partitioner.py` | Stabilizer-to-LIZ partitioning and placement for multi-LIZ configurations |
 | `estimator.py` | Sequential execution-time estimation + TimeParameters definition |
 | `parallel_estimator.py` | Parallel execution-time estimation + text output |
+| `event_scheduler.py` | Opt-in event-driven time model (alternative to lock-step) |
+| `sim_params.py` | Externalized parameter set (timing, phonon, and cooling values loaded from JSON) |
+| `pauli_lookup.py` | Phonon-dependent MS-gate error lookup table with rounding modes |
+| `ion_timeline.py` | Per-ion absolute-time timelines and idle-gap accounting for dephasing |
+| `stim_recompiler.py` | Reconstruction of a multi-round Stim circuit from the compiled sequence |
 | `validator.py` | Constraint validation of instruction sequences (sequential + parallel) |
+| `formatter.py` | Shared text formatting of operations and timesteps |
 | `memory_reorder_optimizer.py` | Ion-reordering optimization inside Memory during Measure |
+| `css_code_utils.py` | Utilities for general CSS codes (circuit generation support) |
+| `zone_visualizer.py` | Zone-state visualization |
 
 ## Circuit File Format
 
@@ -187,11 +213,19 @@ Seven-zone one-dimensional layout: `T(20) - M(20) - T(20) - L(4) - T(20) - M(20)
 Experiment scripts live in `experiments/` and analyze the compiler output in various ways.
 Each script accepts command-line options (see `--help`).
 
-| File | Purpose | Main output directory |
-|---------|------|-----------|
-| `exp_parallel.py` | Parallelism analysis of a single circuit | `results/parallel/` |
-| `exp_placement.py` | Comparison of initial-placement strategies | `results/placement/` |
-| `exp_multi_round.py` | Multi-round QEC simulation | `results/multi_round/` |
-| `exp_memory_reorder.py` | Effect of Memory reordering optimization | `results/memory_reorder/` |
-| `exp_interleave.py` | Effect of interleaved stabilizer execution | `results/interleave/` |
-| `exp_noise_injection.py` | Phonon-based noise injection into Stim | `results/noise_injection/` |
+The main current scripts:
+
+| File | Purpose |
+|---------|------|
+| `exp_cooling_distance_scan.py` | Distance scan (d = 3/5/7) with cooling policies, scaling-ratio (Λ) readout, and the phonon-number-cap sweep |
+| `exp_cooling_pl.py` | Logical error rate of individual cooling policies |
+| `exp_distance_scan.py` | Distance scan without cooling (also hosts the circuit registry) |
+| `exp_multi_round.py` | Multi-round compilation with placement carry-over (also hosts the greedy-alternating placement) |
+| `exp_noise_injection.py` | Phonon-based Stim noise channels (library used by the scripts above) |
+| `exp_multi_liz_pl.py` | Logical error rate of multi-LIZ (2-LIZ) compilations |
+| `exp_per_liz_stream.py` | Per-LIZ stream compilation experiments |
+| `exp_planner_v2.py` | Movement-planner v1/v2 comparisons |
+| `exp_placement_bridge.py`, `exp_verify2_general.py` | Integration experiments with the external 1D qubit-mapping library (placement and ordering comparisons) |
+| `generate_*.py` | Circuit generators (surface and general CSS codes) |
+
+Earlier exploratory scripts (`exp_parallel.py`, `exp_placement.py`, `exp_interleave.py`, `exp_memory_reorder.py`, ...) are kept for reference.
