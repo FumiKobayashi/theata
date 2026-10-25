@@ -241,6 +241,9 @@ def main():
     ap.add_argument('--v2-sort-horizon', type=int, default=2)
     ap.add_argument('--v2-sort-trigger', default='measure',
                     choices=['measure', 'delivery', 'both'])
+    ap.add_argument('--isolate-recool', action='store_true',
+                    help='窓内の合法再冷却: もつれ保持中アンシラを memory へ'
+                         '一時退避して coolant のみ冷却し呼び戻す (10/25 著者案)')
     ap.add_argument('--cool-residual', type=float, default=None,
                     help='冷却後の残留フォノン数 (axial/tr1/tr2 すべてに適用)。'
                          '抽象 Cool 命令の (t, n̄_res) 要件スイープ用')
@@ -325,6 +328,9 @@ def main():
     print(f"E-C6 1-LIZ distance scan: d={args.distances}, rounds={args.rounds}, "
           f"shots={args.shots}, arms={[a[0] for a in arms]}")
 
+    if args.isolate_recool:
+        arms = [(f"{label}+iso", {**kw, 'isolate_ancilla_recool': True})
+                for label, kw in arms]
     if args.ideal_phonon:
         arms = [(f"{label}+n0", kw) for label, kw in arms]
     if args.cool_residual is not None:

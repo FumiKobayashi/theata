@@ -127,6 +127,10 @@ class CompilerConfig:
     resident_coolant_ids: Optional[List[int]] = None
     coolant_recool_us: Optional[float] = None
     predictive_cool_actuator: str = "ancilla"
+    # 窓内の合法再冷却 (2026-10-25 著者案): 訪問間再冷却がもつれ保持中の
+    # アンシラでブロックされるとき、アンシラを memory へ一時退避して
+    # coolant のみ冷却し呼び戻す (輸送コストを払って冷却規則に適合させる)
+    isolate_ancilla_recool: bool = False
     # planner v2 (per-zone state machine + JIT staging, 2026-09-08 設計):
     #   planner: "v1" = 従来 MovementPlanner / "v2" = StateMachinePlanner
     #   prefetch_depth: 測定窓中に次需要イオンを memory→corridor temp へ
@@ -975,6 +979,9 @@ class MovementPlanner:
         self._window_data_ions: Set[int] = set()
         self._measure_event_idx: int = 0
         self._measure_ancillas: Set[int] = set()
+        # ゲート済み・未測定のアンシラ (= もつれ保持中)。直接冷却 (CoolOp) は
+        # 内部状態を破壊するため、この集合が居るチェーンへは挿入できない
+        self._entangled_ancillas: Set[int] = set()
         self._preferred_stabilizer: Optional[int] = None
         # 複数 LIZ 用: ancilla_id -> liz_zone_id の partition（None なら単一 LIZ 互換動作）
         self.partition: Optional[StabilizerPartition] = None
@@ -1078,6 +1085,7 @@ class MovementPlanner:
         # 予測型冷却: 測定窓トラッキングの初期化
         self._measure_ancillas = set(measure_ancillas)
         self._measure_event_idx = 0
+        self._entangled_ancillas = set()
         self.episodes = []
         if self._record_windows:
             self._recorded_windows = []
@@ -1372,6 +1380,19 @@ class MovementPlanner:
         if not self._post_measure_cool_due():
             return None
         zone = state.locate(op.targets[0])
+        return self._emit_cool_op(zone, state, dur)
+
+    def _emit_cool_op(self, zone: int, state: QCCDState,
+                      dur: float) -> 'CoolOp':
+        """CoolOp の共通発行点: 冷却規則 (もつれ保持中のアンシラが居る
+        チェーンへの直接冷却禁止) を発行時に検査し、違反なら即例外を
+        投げる (2026-10-25、窓内違反冷却バグの再発防止)。"""
+        bad = [i for i in state.zone_contents.get(zone, [])
+               if i in self._entangled_ancillas]
+        if bad:
+            raise RuntimeError(
+                f"cooling-rule violation: CoolOp on zone {zone} while "
+                f"entangled ancillas {bad} share the chain")
         state.cool_chain(zone)
         return CoolOp(zone_id=zone, duration_us=dur)
 
@@ -1478,8 +1499,7 @@ class MovementPlanner:
         for mem_id in target_zones:
             # 1) アンシラを冷却 (前の側への合流で温まっていれば再冷却)
             if _ancilla_warm(ancilla):
-                state.cool_chain(liz)
-                ops.append(CoolOp(zone_id=liz, duration_us=cool_dur))
+                ops.append(self._emit_cool_op(liz, state, cool_dur))
             # 2) memory へ合流 (merge の平均化で memory チェーンが冷える)
             ops.extend(self._move_ion_to_zone(ancilla, mem_id, state))
             # 3) LIZ へ帰還
@@ -1487,8 +1507,7 @@ class MovementPlanner:
         # 4) 熱シャトルとして吸った熱を捨てる: 最後の合流で温まったまま
         #    次のスタビライザ測定に使われないよう、帰還後に再冷却する
         if ops and _ancilla_warm(ancilla):
-            state.cool_chain(liz)
-            ops.append(CoolOp(zone_id=liz, duration_us=cool_dur))
+            ops.append(self._emit_cool_op(liz, state, cool_dur))
         if ops:
             self.episodes.append([id(o) for o in ops])
         return ops
@@ -1512,18 +1531,58 @@ class MovementPlanner:
         aux = self._measure_ancillas | self._resident
         if not all(ion in aux for ion in contents):
             return []
+        # 冷却規則ガード (2026-10-25): ゲート済み・未測定のアンシラが居る
+        # チェーンへの直接冷却は、もつれた内部状態を破壊するため挿入しない。
+        # (測定窓の内部でのデータグループ入れ替え時に該当。10/25 検証では
+        #  本ポリシーの発動の 100% がこのケースだった)
+        dirty = [i for i in contents if i in self._entangled_ancillas]
+        if dirty:
+            if not self.config.isolate_ancilla_recool:
+                return []
+            return self._isolated_recool(liz, contents, dirty, state, dur)
+        if not self._aux_warm(contents, state):
+            return []
+        return [self._emit_cool_op(liz, state, dur)]
+
+    def _aux_warm(self, ions, state: QCCDState) -> bool:
+        """指定イオンのいずれかが残留値を超えて温まっているか"""
         res_ax = state.phonon_params.get('cool_residual_axial', 0.0)
         res_tr = state.phonon_params.get('cool_residual_transversal', 0.0)
         res_tr2 = state.phonon_params.get('cool_residual_transversal2', res_tr)
-        warm = any(
+        return any(
             state.phonon_transversal.get(i, 0.0) > res_tr + 1e-12
             or state.phonon_transversal2.get(i, 0.0) > res_tr2 + 1e-12
             or state.phonon_axial.get(i, 0.0) > res_ax + 1e-12
-            for i in contents)
-        if not warm:
+            for i in ions)
+
+    def _isolated_recool(self, liz: int, contents, dirty, state: QCCDState,
+                         dur: float) -> List[Operation]:
+        """窓内の合法再冷却 (isolate_ancilla_recool, 2026-10-25 著者案)。
+
+        もつれ保持中のアンシラを memory へ一時退避させ、LIZ に残った
+        coolant のみを CoolOp で冷やし、アンシラを呼び戻す。
+        - 退避は輸送のみなので内部状態を保存する (冷却規則に適合)
+        - アンシラは memory チェーンとの merge 平均化を経て
+          ≈ チェーン平均のフォノンを背負って帰還し、冷えた coolant
+          (m 個) との merge で ≈ 1/(m+1) に希釈される
+        - 往復で配置が元に戻るため窓の op 構造は不変 (pass 1/2 で
+          条件・挙動が一致し、予測型トリガの窓整合を壊さない)
+        """
+        coolants = [i for i in contents if i not in self._entangled_ancillas]
+        if not coolants or not self._aux_warm(coolants, state):
             return []
-        state.cool_chain(liz)
-        return [CoolOp(zone_id=liz, duration_us=dur)]
+        ops: List[Operation] = []
+        dests = {}
+        for anc in dirty:
+            dest = state.find_eviction_destination(liz, anc)
+            if dest is None:
+                return []    # 退避先なし — 冷却を諦める (ガードと同じ挙動)
+            dests[anc] = dest
+            ops.extend(self._move_ion_to_zone(anc, dest, state))
+        ops.append(self._emit_cool_op(liz, state, dur))
+        for anc in reversed(dirty):
+            ops.extend(self._move_ion_to_zone(anc, liz, state))
+        return ops
 
     def _on_measure_event(self, op: Operation,
                           state: QCCDState) -> List[Operation]:
@@ -1662,6 +1721,10 @@ class MovementPlanner:
             liz_id = state.locate(op.targets[0])
             # MSゲート実行時のフォノン数を記録
             if op.type == 'MS':
+                # もつれ追跡: MS に参加したアンシラは測定/リセットまで
+                # 直接冷却の対象から外す (冷却規則ガード)
+                self._entangled_ancillas.update(
+                    t for t in op.targets if t in self._measure_ancillas)
                 state.record_gate_phonon(op.type, op.targets)
                 if self._record_windows:
                     # 予測型冷却 pass 1: 窓内のデータ量子ビットを収集
@@ -1671,9 +1734,11 @@ class MovementPlanner:
             return GateOp(type=op.type, targets=op.targets, params=op.params, zone_id=liz_id)
         if isinstance(op, ResetOp) and op.targets:
             liz_id = state.locate(op.targets[0])
+            self._entangled_ancillas.difference_update(op.targets)
             return ResetOp(targets=op.targets, zone_id=liz_id)
         if isinstance(op, MeasureOp) and op.targets:
             liz_id = state.locate(op.targets[0])
+            self._entangled_ancillas.difference_update(op.targets)
             return MeasureOp(targets=op.targets, zone_id=liz_id)
         if isinstance(op, CoolOp):
             # zone_id は命令に明示されているため付与不要。
