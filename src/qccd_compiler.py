@@ -131,6 +131,11 @@ class CompilerConfig:
     # アンシラでブロックされるとき、アンシラを memory へ一時退避して
     # coolant のみ冷却し呼び戻す (輸送コストを払って冷却規則に適合させる)
     isolate_ancilla_recool: bool = False
+    # 隔離サイクル (退避→Cool→帰還) の反復数 (2026-10-26)。各サイクルは
+    # アンシラを熱シャトルとした memory チェーンの exchange 冷却 1 回に相当。
+    # 利得はチェーン平均の低下 (除去率 ~1/(チェーン長+1)/回) で逓減し、
+    # コストは CoolOp + 往復輸送 + per-ion merge コストが毎回乗る
+    isolate_recool_iters: int = 1
     # planner v2 (per-zone state machine + JIT staging, 2026-09-08 設計):
     #   planner: "v1" = 従来 MovementPlanner / "v2" = StateMachinePlanner
     #   prefetch_depth: 測定窓中に次需要イオンを memory→corridor temp へ
@@ -1572,16 +1577,25 @@ class MovementPlanner:
         if not coolants or not self._aux_warm(coolants, state):
             return []
         ops: List[Operation] = []
-        dests = {}
-        for anc in dirty:
-            dest = state.find_eviction_destination(liz, anc)
-            if dest is None:
-                return []    # 退避先なし — 冷却を諦める (ガードと同じ挙動)
-            dests[anc] = dest
-            ops.extend(self._move_ion_to_zone(anc, dest, state))
-        ops.append(self._emit_cool_op(liz, state, dur))
-        for anc in reversed(dirty):
-            ops.extend(self._move_ion_to_zone(anc, liz, state))
+        for _ in range(max(1, self.config.isolate_recool_iters)):
+            cycle: List[Operation] = []
+            ok = True
+            for anc in dirty:
+                dest = state.find_eviction_destination(liz, anc)
+                if dest is None:
+                    ok = False    # 退避先なし — このサイクルを諦める
+                    break
+                cycle.extend(self._move_ion_to_zone(anc, dest, state))
+            if not ok:
+                break
+            cycle.append(self._emit_cool_op(liz, state, dur))
+            for anc in reversed(dirty):
+                cycle.extend(self._move_ion_to_zone(anc, liz, state))
+            ops.extend(cycle)
+            # 2 サイクル目以降は coolant が温まっていなければ打ち切り
+            # (帰還 merge で吸う熱が尽きた = 反復の利得なし)
+            if not self._aux_warm(coolants, state):
+                break
         return ops
 
     def _on_measure_event(self, op: Operation,

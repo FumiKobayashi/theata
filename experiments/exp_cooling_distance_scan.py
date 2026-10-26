@@ -244,6 +244,8 @@ def main():
     ap.add_argument('--isolate-recool', action='store_true',
                     help='窓内の合法再冷却: もつれ保持中アンシラを memory へ'
                          '一時退避して coolant のみ冷却し呼び戻す (10/25 著者案)')
+    ap.add_argument('--isolate-recool-iters', type=int, default=1,
+                    help='隔離サイクル (退避→Cool→帰還) の反復数 (既定 1)')
     ap.add_argument('--cool-residual', type=float, default=None,
                     help='冷却後の残留フォノン数 (axial/tr1/tr2 すべてに適用)。'
                          '抽象 Cool 命令の (t, n̄_res) 要件スイープ用')
@@ -329,7 +331,11 @@ def main():
           f"shots={args.shots}, arms={[a[0] for a in arms]}")
 
     if args.isolate_recool:
-        arms = [(f"{label}+iso", {**kw, 'isolate_ancilla_recool': True})
+        k = args.isolate_recool_iters
+        suffix = "+iso" if k == 1 else f"+iso{k}"
+        arms = [(f"{label}{suffix}",
+                 {**kw, 'isolate_ancilla_recool': True,
+                  'isolate_recool_iters': k})
                 for label, kw in arms]
     if args.ideal_phonon:
         arms = [(f"{label}+n0", kw) for label, kw in arms]
