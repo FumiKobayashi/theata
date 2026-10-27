@@ -246,9 +246,10 @@ class CompilerConfig:
             raise ValueError(
                 f"liz_pt_max_iters must be int >= 1, "
                 f"got {self.liz_pt_max_iters}")
-        if self.liz_pt_park not in {"memory", "temp"}:
+        if self.liz_pt_park not in {"memory", "temp", "home"}:
             raise ValueError(
-                f"liz_pt_park must be 'memory' or 'temp', got {self.liz_pt_park}")
+                f"liz_pt_park must be 'memory', 'temp' or 'home', "
+                f"got {self.liz_pt_park}")
         if self.predictive_cool_actuator not in {"ancilla", "data"}:
             raise ValueError(
                 f"predictive_cool_actuator must be 'ancilla' or 'data', "
@@ -1425,15 +1426,24 @@ class MovementPlanner:
 
     def _emit_cool_op(self, zone: int, state: QCCDState,
                       dur: float) -> 'CoolOp':
-        """CoolOp の共通発行点: 冷却規則 (もつれ保持中のアンシラが居る
+        """CoolOp の共通発行点: 冷却規則 (量子情報を保持するイオンが居る
         チェーンへの直接冷却禁止) を発行時に検査し、違反なら即例外を
-        投げる (2026-10-25、窓内違反冷却バグの再発防止)。"""
+        投げる (2026-10-25、窓内違反冷却バグの再発防止)。
+
+        違反 = ゾーン内に (a) ゲート済み・未測定のアンシラ、または
+        (b) データイオン (coolant でも測定アンシラでもない回路イオン) が居る。
+        測定済み/未ゲートのアンシラと coolant への直接冷却は合法。
+        (b) の判定は _measure_ancillas が plan() で設定済みの場合のみ
+        (planner を直接呼ぶ単体テストでは (a) のみ検査)。"""
         bad = [i for i in state.zone_contents.get(zone, [])
-               if i in self._entangled_ancillas]
+               if i not in self._resident
+               and (i in self._entangled_ancillas
+                    or (bool(self._measure_ancillas)
+                        and i not in self._measure_ancillas))]
         if bad:
             raise RuntimeError(
                 f"cooling-rule violation: CoolOp on zone {zone} while "
-                f"entangled ancillas {bad} share the chain")
+                f"ions holding quantum information {bad} share the chain")
         state.cool_chain(zone)
         return CoolOp(zone_id=zone, duration_us=dur)
 
@@ -1677,6 +1687,12 @@ class MovementPlanner:
             return []
         if self.config.liz_pt_park == "temp":
             return self._liz_pt_temp_park(liz, anc, d_i, thr, cool_dur, state)
+        if self.config.liz_pt_park == "home":
+            # home 変種 (配達前判定) は _liz_pt_home_isolation が搬入直前に
+            # 処理する。LIZ 到着後のここでは何もしない。
+            # (実測 10/27: 配達前チェックは移動由来の加熱を見逃す — 比較用に残置)
+            return []
+        # park == "memory": LIZ 内チェック + 左チェーン一括退避 (10/26 会議設計)
         mems = sorted(m.id for m in self._reachable_memory_zones(liz))
         if not mems:
             return []
@@ -2048,15 +2064,133 @@ class MovementPlanner:
                 # 次のデータ到着前に冷たいチェーンへ戻す
                 result.extend(self._maybe_recool_auxiliaries(target_liz, state))
 
-            # ターゲットイオンをLIZへ移動
-            for ion in ions_to_bring:
-                if state.locate(ion) != target_liz:
-                    result.extend(self._move_ion_to_zone(ion, target_liz, state))
+            # ターゲットイオンをLIZへ移動。
+            # LIZ predictive trigger (memory 変種, 10/26 会議設計) が有効な
+            # MS ゲートでは、アンシラを先に搬入し、データは搬入の直前に
+            # home 側で隔離冷却してから運ぶ (配達前判定 — 熱いまま LIZ へ
+            # 運んで送り返す無駄を避ける)。
+            lpt_memory = (self.config.liz_pt_threshold_transversal is not None
+                          and self.config.liz_pt_park == "home"
+                          and isinstance(op, GateOp) and op.type == 'MS')
+            if lpt_memory:
+                order = ([i for i in ions_to_bring
+                          if i in self._measure_ancillas]
+                         + [i for i in ions_to_bring
+                            if i not in self._measure_ancillas])
+                for ion in order:
+                    if state.locate(ion) == target_liz:
+                        continue
+                    if ion not in self._measure_ancillas:
+                        pre, restore_zones = self._liz_pt_home_isolation(
+                            ion, op, target_liz, state)
+                        result.extend(pre)
+                        result.extend(
+                            self._move_ion_to_zone(ion, target_liz, state))
+                        if restore_zones is not None:
+                            # チェーン復帰は dᵢ の搬出後 (状態変更もここで行う)
+                            f_z, s_z = restore_zones
+                            left_z = min(f_z, s_z)
+                            right_z = max(f_z, s_z)
+                            merge_op = MergeOp(zone_left=left_z,
+                                               zone_right=right_z)
+                            state.merge_chains(left_z, right_z)
+                            result.append(merge_op)
+                            if self.episodes:
+                                self.episodes[-1].append(id(merge_op))
+                    else:
+                        result.extend(
+                            self._move_ion_to_zone(ion, target_liz, state))
+            else:
+                for ion in ions_to_bring:
+                    if state.locate(ion) != target_liz:
+                        result.extend(self._move_ion_to_zone(ion, target_liz, state))
 
             if result:
                 return result
 
         return []
+
+    def _liz_pt_home_isolation(self, d_i: int, op: Operation, liz: int,
+                               state: QCCDState):
+        """LIZ predictive trigger の memory 変種 (配達前判定、2026-10-27 v2)。
+
+        データ dᵢ を home Memory から動かさずに隔離する (10/26 会議設計の
+        正しい読み):
+          1) dᵢ を home チェーンの LIZ 側の端へ整列 (配達に必要な整列と共用)
+          2) チェーンの残りを「LIZ と反対側」の外側 Temp へ 1 SplitOp で退避
+             (dᵢ が端に居るため split_chain の方向非対称が両側で都合よく働く)
+          3) サイクル: アンシラが LIZ → dᵢ の元へ出向いて merge (平均化)
+             → coolant のみの LIZ を冷却 → アンシラ帰還 (冷えた coolant へ
+             熱を捨てる)。dᵢ が閾値以下になるまで反復 (最大 liz_pt_max_iters)
+          4) 戻り値 = (エピソード ops, チェーン復帰 ops)。復帰は dᵢ の搬出後に
+             行う必要がある (dᵢ 残留中に復帰するとチェーン平均を浴び直す)
+        """
+        if not hasattr(self, 'lpt_skips'):
+            from collections import Counter
+            self.lpt_skips = Counter()
+        thr = self.config.liz_pt_threshold_transversal
+        if (thr is None or not state.phonon_params
+                or state.phonon_transversal.get(d_i, 0.0) <= thr):
+            self.lpt_skips['below_thr'] += 1
+            return [], None
+        ancs = [t for t in op.targets if t in self._measure_ancillas]
+        if len(ancs) != 1 or state.locate(ancs[0]) != liz:
+            self.lpt_skips['anc_not_in_liz'] += 1
+            return [], None
+        anc = ancs[0]
+        coolants = [i for i in state.zone_contents.get(liz, [])
+                    if i in self._resident]
+        if not coolants:
+            self.lpt_skips['no_coolant'] += 1
+            return [], None
+        s_zone = state.locate(d_i)
+        if (self.architecture.is_liz(s_zone)
+                or self.architecture.is_temp(s_zone)):
+            self.lpt_skips['bad_src_zone'] += 1
+            return [], None
+        cool_dur = (self.config.coolant_recool_us
+                    if self.config.coolant_recool_us is not None
+                    else self.config.cool_ancilla_after_measure_us)
+        if cool_dur is None:
+            self.lpt_skips['no_duration'] += 1
+            return [], None
+        liz_side_right = s_zone < liz
+        f_zone = self.architecture.get_adjacent_temp(
+            s_zone, "left" if liz_side_right else "right")
+        if f_zone is None or state.zone_contents.get(f_zone):
+            self.lpt_skips['outer_temp_busy'] += 1
+            return [], None
+        self.lpt_skips['fired'] += 1
+
+        pre: List[Operation] = []
+        # 1) dᵢ を LIZ 側の端へ整列
+        pre.extend(self._position_for_shuttle(d_i, s_zone, liz_side_right,
+                                              state))
+        # 2) チェーンの残りを外側 Temp へ退避
+        contents = state.zone_contents[s_zone]
+        restore_zones = None
+        if len(contents) > 1:
+            boundary = contents[-2] if liz_side_right else d_i
+            pre.append(SplitOp(ion_id=boundary, dst_zone_id=f_zone,
+                               src_zone_id=s_zone))
+            state.split_chain(boundary, f_zone)
+            restore_zones = (f_zone, s_zone)
+        # 3) 隔離冷却サイクル (アンシラが出向く)
+        for _ in range(max(1, self.config.liz_pt_max_iters)):
+            if state.phonon_transversal.get(d_i, 0.0) <= thr:
+                break
+            # LIZ に coolant 以外 (他のデータ等) が残っていると、アンシラ退出後も
+            # 冷却が許されないためサイクルを諦める
+            others = [i for i in state.zone_contents.get(liz, [])
+                      if i not in self._resident and i != anc]
+            if others:
+                break
+            pre.extend(self._move_ion_to_zone(anc, s_zone, state))
+            pre.append(self._emit_cool_op(liz, state, cool_dur))
+            pre.extend(self._move_ion_to_zone(anc, liz, state))
+        if pre:
+            self.episodes.append([id(o) for o in pre])
+        return pre, restore_zones
 
     # ------------------------------------------
     # Ion Movement (inline expansion)

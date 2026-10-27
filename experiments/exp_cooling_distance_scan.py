@@ -254,10 +254,12 @@ def main():
                          'CX 直後にデータが閾値超なら (A, d_i) を隔離して冷却)')
     ap.add_argument('--liz-pt-iters', type=int, default=1,
                     help='LIZ predictive trigger の隔離サイクル反復上限 (既定 1)')
-    ap.add_argument('--liz-pt-park', choices=['memory', 'temp'],
+    ap.add_argument('--liz-pt-park', choices=['memory', 'temp', 'home'],
                     default='memory',
-                    help='LPT の隔離先: memory = 10/26 会議設計 (チェーン退避) / '
-                         'temp = LIZ 隣接 Temp (チェーン無接触、実機確認待ち)')
+                    help='LPT の隔離先: memory = LIZ 内チェック + チェーン退避 '
+                         '(10/26 会議設計) / temp = LIZ 隣接 Temp (チェーン無接触、'
+                         '実機確認待ち) / home = 配達前判定・home 側隔離 '
+                         '(移動由来の加熱を見逃すことが実測済み、比較用)')
     ap.add_argument('--cool-residual', type=float, default=None,
                     help='冷却後の残留フォノン数 (axial/tr1/tr2 すべてに適用)。'
                          '抽象 Cool 命令の (t, n̄_res) 要件スイープ用')
