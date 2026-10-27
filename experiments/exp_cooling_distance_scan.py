@@ -59,7 +59,10 @@ def compile_rounds_d(d, cfg_kwargs, rounds, tp=None):
     fwd_mod = __import__(forward)
     half = (len(fwd_mod.DATA_QUBITS) + 1) // 2
     mem_cap = max(20, half + len(fwd_mod.ANCILLA_QUBITS) + 4)
-    arch = QCCDArchitecture.simple_mlm(liz_capacity=4, memory_capacity=mem_cap)
+    # temp_capacity = mem_cap: LIZ predictive trigger のチェーン一括退避が
+    # 外側 Temp に全チェーンを置くため (10/27、Temp 長期滞在の仮定とセット)
+    arch = QCCDArchitecture.simple_mlm(liz_capacity=4, memory_capacity=mem_cap,
+                                       temp_capacity=mem_cap)
     initial = placement_greedy_alt(
         fwd_mod.DATA_QUBITS, fwd_mod.ANCILLA_QUBITS, fwd_mod)
 
@@ -246,6 +249,15 @@ def main():
                          '一時退避して coolant のみ冷却し呼び戻す (10/25 著者案)')
     ap.add_argument('--isolate-recool-iters', type=int, default=1,
                     help='隔離サイクル (退避→Cool→帰還) の反復数 (既定 1)')
+    ap.add_argument('--liz-pt', type=float, default=None, metavar='THETA',
+                    help='LIZ predictive trigger の閾値 (10/26 会議の新方式。'
+                         'CX 直後にデータが閾値超なら (A, d_i) を隔離して冷却)')
+    ap.add_argument('--liz-pt-iters', type=int, default=1,
+                    help='LIZ predictive trigger の隔離サイクル反復上限 (既定 1)')
+    ap.add_argument('--liz-pt-park', choices=['memory', 'temp'],
+                    default='memory',
+                    help='LPT の隔離先: memory = 10/26 会議設計 (チェーン退避) / '
+                         'temp = LIZ 隣接 Temp (チェーン無接触、実機確認待ち)')
     ap.add_argument('--cool-residual', type=float, default=None,
                     help='冷却後の残留フォノン数 (axial/tr1/tr2 すべてに適用)。'
                          '抽象 Cool 命令の (t, n̄_res) 要件スイープ用')
@@ -336,6 +348,17 @@ def main():
         arms = [(f"{label}{suffix}",
                  {**kw, 'isolate_ancilla_recool': True,
                   'isolate_recool_iters': k})
+                for label, kw in arms]
+    if args.liz_pt is not None:
+        k = args.liz_pt_iters
+        suffix = (f"+lpt{args.liz_pt:g}" if k == 1
+                  else f"+lpt{args.liz_pt:g}x{k}")
+        if args.liz_pt_park != 'memory':
+            suffix += f"({args.liz_pt_park})"
+        arms = [(f"{label}{suffix}",
+                 {**kw, 'liz_pt_threshold_transversal': args.liz_pt,
+                  'liz_pt_max_iters': k,
+                  'liz_pt_park': args.liz_pt_park})
                 for label, kw in arms]
     if args.ideal_phonon:
         arms = [(f"{label}+n0", kw) for label, kw in arms]

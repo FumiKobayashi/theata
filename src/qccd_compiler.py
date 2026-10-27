@@ -136,6 +136,23 @@ class CompilerConfig:
     # 利得はチェーン平均の低下 (除去率 ~1/(チェーン長+1)/回) で逓減し、
     # コストは CoolOp + 往復輸送 + per-ion merge コストが毎回乗る
     isolate_recool_iters: int = 1
+    # LIZ predictive trigger (2026-10-26 会議)。CX (MS) 直後にゲート対象
+    # データの transversal フォノンを検査し、閾値超なら:
+    #   左側 Memory のチェーンを外側 Temp へ一括退避 (SplitOp 1 発)
+    #   → (A, d_i) を Memory へ隔離 → coolant のみの LIZ を冷却
+    #   → (A, d_i) 帰還 (冷えた coolant との merge で ≈1/4 に希釈)
+    #   → 閾値超なら反復 (最大 liz_pt_max_iters) → チェーン復帰。
+    # 隔離中 (A, d_i) は専用 2 イオンチェーンなので反復で幾何的に冷える。
+    # coolant 必須 (居なければ発動しない)。仮定: Temp への長期滞在可、
+    # 空ゾーンへの merge もコスト計上 (2026-10-27、実機確認待ちの安全側)
+    liz_pt_threshold_transversal: Optional[float] = None
+    liz_pt_max_iters: int = 1
+    # 隔離先 (2026-10-27): "memory" = 10/26 会議設計 (チェーンを外側 Temp へ
+    # 退避して M を専有。エピソードごとにチェーン全員へ split+merge コストが
+    # 乗り、チェーンが長いと自滅することが初計測で判明)。
+    # "temp" = LIZ 隣接 Temp にペアを退避 (チェーン無接触・最小コスト。
+    # ただし冷却中の隣接 Temp 滞在の可否は実機確認待ち)
+    liz_pt_park: str = "memory"
     # planner v2 (per-zone state machine + JIT staging, 2026-09-08 設計):
     #   planner: "v1" = 従来 MovementPlanner / "v2" = StateMachinePlanner
     #   prefetch_depth: 測定窓中に次需要イオンを memory→corridor temp へ
@@ -219,6 +236,19 @@ class CompilerConfig:
             raise ValueError(
                 f"coolant_recool_us must be > 0 or None, "
                 f"got {self.coolant_recool_us}")
+        if (self.liz_pt_threshold_transversal is not None
+                and self.liz_pt_threshold_transversal < 0):
+            raise ValueError(
+                f"liz_pt_threshold_transversal must be >= 0 or None, "
+                f"got {self.liz_pt_threshold_transversal}")
+        if (not isinstance(self.liz_pt_max_iters, int)
+                or self.liz_pt_max_iters < 1):
+            raise ValueError(
+                f"liz_pt_max_iters must be int >= 1, "
+                f"got {self.liz_pt_max_iters}")
+        if self.liz_pt_park not in {"memory", "temp"}:
+            raise ValueError(
+                f"liz_pt_park must be 'memory' or 'temp', got {self.liz_pt_park}")
         if self.predictive_cool_actuator not in {"ancilla", "data"}:
             raise ValueError(
                 f"predictive_cool_actuator must be 'ancilla' or 'data', "
@@ -1150,6 +1180,12 @@ class MovementPlanner:
                     cool_op = self._maybe_auto_cool(node.operation, state)
                     if cool_op is not None:
                         ops.append(cool_op)
+
+                    # LIZ predictive trigger (10/26 会議): CX の直前にゲート対象
+                    # データの追跡フォノンを検査し、閾値超なら隔離冷却エピソード
+                    # を挿入してからゲートを撃つ (ゲート自身が冷えた状態で走る)
+                    ops.extend(self._maybe_liz_pt(node.operation, state))
+
                     ops.append(self._annotate_gate(node.operation, state))
                     dag.execute(node.id)
 
@@ -1597,6 +1633,121 @@ class MovementPlanner:
             if not self._aux_warm(coolants, state):
                 break
         return ops
+
+    def _maybe_liz_pt(self, op: Operation,
+                      state: QCCDState) -> List[Operation]:
+        """LIZ predictive trigger (2026-10-26 会議、liz_pt_threshold_transversal)。
+
+        CX (MS) 直後の検査: ゲート対象データ d_i の transversal フォノンが
+        閾値超なら、次の隔離冷却エピソードを挿入する。
+          1) 左側 Memory のチェーンを外側 Temp へ一括退避 (SplitOp 1 発。
+             split_chain の方向非対称により一括退避は左方向のみ可能なため
+             v1 は左側 M に固定)
+          2) A → M、d_i → M と隔離 (M は専有、merge は (A, d_i) 間のみ)
+          3) coolant のみになった LIZ を冷却 (冷却規則ガードに適合)
+          4) d_i → LIZ、A → LIZ と帰還 (冷えた coolant との merge で希釈)
+          5) d_i がまだ閾値超なら 2–4 を反復 (最大 liz_pt_max_iters)。
+             隔離中はチェーン平均に戻されないため反復は幾何的に効く
+          6) チェーンを M へ復帰 (MergeOp)
+        往復で配置が元に戻るため、MPT の窓構造 (測定イベント列) は不変。
+        """
+        thr = self.config.liz_pt_threshold_transversal
+        if thr is None or not state.phonon_params:
+            return []
+        if not (isinstance(op, GateOp) and op.type == 'MS' and op.targets):
+            return []
+        data = [t for t in op.targets if t not in self._measure_ancillas]
+        ancs = [t for t in op.targets if t in self._measure_ancillas]
+        if len(data) != 1 or len(ancs) != 1:
+            return []
+        d_i, anc = data[0], ancs[0]
+        if state.phonon_transversal.get(d_i, 0.0) <= thr:
+            return []
+        liz = state.locate(anc)
+        if not self.architecture.is_liz(liz) or state.locate(d_i) != liz:
+            return []
+        coolants = [i for i in state.zone_contents.get(liz, [])
+                    if i in self._resident]
+        if not coolants:
+            return []    # coolant 無しでは不可 (10/26 会議)
+        cool_dur = (self.config.coolant_recool_us
+                    if self.config.coolant_recool_us is not None
+                    else self.config.cool_ancilla_after_measure_us)
+        if cool_dur is None:
+            return []
+        if self.config.liz_pt_park == "temp":
+            return self._liz_pt_temp_park(liz, anc, d_i, thr, cool_dur, state)
+        mems = sorted(m.id for m in self._reachable_memory_zones(liz))
+        if not mems:
+            return []
+        m_zone = mems[0]
+        f_zone = self.architecture.get_adjacent_temp(m_zone, "left")
+        if f_zone is None or state.zone_contents.get(f_zone):
+            return []    # 外側 Temp がない / 空いていない — 発動を諦める
+
+        ops_out: List[Operation] = []
+        # 1) チェーン一括退避 (M が空なら不要)
+        chain = list(state.zone_contents.get(m_zone, []))
+        displaced = bool(chain)
+        if displaced:
+            boundary = chain[-1]
+            ops_out.append(SplitOp(ion_id=boundary, dst_zone_id=f_zone,
+                                   src_zone_id=m_zone))
+            state.split_chain(boundary, f_zone)
+        # 2)–5) 隔離冷却サイクル
+        for _ in range(max(1, self.config.liz_pt_max_iters)):
+            if state.phonon_transversal.get(d_i, 0.0) <= thr:
+                break
+            ops_out.extend(self._move_ion_to_zone(anc, m_zone, state))
+            ops_out.extend(self._move_ion_to_zone(d_i, m_zone, state))
+            ops_out.append(self._emit_cool_op(liz, state, cool_dur))
+            ops_out.extend(self._move_ion_to_zone(d_i, liz, state))
+            ops_out.extend(self._move_ion_to_zone(anc, liz, state))
+        # 6) チェーン復帰
+        if displaced:
+            left_z, right_z = min(f_zone, m_zone), max(f_zone, m_zone)
+            ops_out.append(MergeOp(zone_left=left_z, zone_right=right_z))
+            state.merge_chains(left_z, right_z)
+        if ops_out:
+            self.episodes.append([id(o) for o in ops_out])
+        return ops_out
+
+    def _liz_pt_temp_park(self, liz: int, anc: int, d_i: int, thr: float,
+                          cool_dur: float, state: QCCDState) -> List[Operation]:
+        """LIZ predictive trigger の Temp 退避変種 (liz_pt_park="temp")。
+
+        (A, d_i) を LIZ 隣接 Temp へ 1 SplitOp で退避し、coolant のみの
+        LIZ を冷却して 1 MergeOp で戻す。memory チェーンに一切触れない
+        ため、チェーン全員への split+merge コストが発生しない (memory
+        変種の自滅要因を回避)。整列 swap は初回サイクルのみ必要
+        (merge 後の並びが [d_i, A, coolants...] に保たれるため)。
+        仮定: 冷却中の隣接 Temp 滞在可 (実機確認待ち)。
+        """
+        park = self.architecture.get_adjacent_temp(liz, "left")
+        if park is None or state.zone_contents.get(park):
+            return []
+        ops_out: List[Operation] = []
+        # ペアを LIZ チェーンの左端に整列: anc を左端へ → d_i を左端へ
+        # (anc は 2 番目へ押し込まれ、[d_i, anc, coolants...] になる)
+        ops_out.extend(self._position_for_shuttle(anc, liz, False, state))
+        ops_out.extend(self._position_for_shuttle(d_i, liz, False, state))
+        for _ in range(max(1, self.config.liz_pt_max_iters)):
+            if state.phonon_transversal.get(d_i, 0.0) <= thr:
+                break
+            contents = state.zone_contents[liz]
+            if contents[:2] != [d_i, anc]:
+                break    # 想定外の並び — 発動を諦める
+            boundary = contents[1]
+            ops_out.append(SplitOp(ion_id=boundary, dst_zone_id=park,
+                                   src_zone_id=liz))
+            state.split_chain(boundary, park)
+            ops_out.append(self._emit_cool_op(liz, state, cool_dur))
+            left_z, right_z = min(park, liz), max(park, liz)
+            ops_out.append(MergeOp(zone_left=left_z, zone_right=right_z))
+            state.merge_chains(left_z, right_z)
+        if ops_out:
+            self.episodes.append([id(o) for o in ops_out])
+        return ops_out
 
     def _on_measure_event(self, op: Operation,
                           state: QCCDState) -> List[Operation]:
