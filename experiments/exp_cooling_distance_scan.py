@@ -254,6 +254,10 @@ def main():
                          'CX 直後にデータが閾値超なら (A, d_i) を隔離して冷却)')
     ap.add_argument('--liz-pt-iters', type=int, default=1,
                     help='LIZ predictive trigger の隔離サイクル反復上限 (既定 1)')
+    ap.add_argument('--liz-pt-target', type=float, default=None,
+                    metavar='TGT',
+                    help='LPT の到達目標 (ヒステリシス)。発火は --liz-pt、'
+                         '冷却はこの値まで続ける (既定 None = --liz-pt と同じ)')
     ap.add_argument('--liz-pt-park', choices=['memory', 'temp', 'home'],
                     default='memory',
                     help='LPT の隔離先: memory = LIZ 内チェック + チェーン退避 '
@@ -353,12 +357,16 @@ def main():
                 for label, kw in arms]
     if args.liz_pt is not None:
         k = args.liz_pt_iters
-        suffix = (f"+lpt{args.liz_pt:g}" if k == 1
-                  else f"+lpt{args.liz_pt:g}x{k}")
+        suffix = f"+lpt{args.liz_pt:g}"
+        if args.liz_pt_target is not None:
+            suffix += f"to{args.liz_pt_target:g}"
+        if k != 1:
+            suffix += f"x{k}"
         if args.liz_pt_park != 'memory':
             suffix += f"({args.liz_pt_park})"
         arms = [(f"{label}{suffix}",
                  {**kw, 'liz_pt_threshold_transversal': args.liz_pt,
+                  'liz_pt_target_transversal': args.liz_pt_target,
                   'liz_pt_max_iters': k,
                   'liz_pt_park': args.liz_pt_park})
                 for label, kw in arms]

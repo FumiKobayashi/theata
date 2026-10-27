@@ -147,6 +147,10 @@ class CompilerConfig:
     # 空ゾーンへの merge もコスト計上 (2026-10-27、実機確認待ちの安全側)
     liz_pt_threshold_transversal: Optional[float] = None
     liz_pt_max_iters: int = 1
+    # ヒステリシス化 (2026-10-27): 発火閾値 (threshold) と到達目標 (target) の
+    # 分離。None = 従来どおり threshold まで冷やす。target < threshold に
+    # 設定すると「発火頻度は threshold 並み、ゲート品質は target 並み」を狙える
+    liz_pt_target_transversal: Optional[float] = None
     # 隔離先 (2026-10-27): "memory" = 10/26 会議設計 (チェーンを外側 Temp へ
     # 退避して M を専有。エピソードごとにチェーン全員へ split+merge コストが
     # 乗り、チェーンが長いと自滅することが初計測で判明)。
@@ -246,6 +250,17 @@ class CompilerConfig:
             raise ValueError(
                 f"liz_pt_max_iters must be int >= 1, "
                 f"got {self.liz_pt_max_iters}")
+        if self.liz_pt_target_transversal is not None:
+            if self.liz_pt_target_transversal < 0:
+                raise ValueError(
+                    f"liz_pt_target_transversal must be >= 0 or None, "
+                    f"got {self.liz_pt_target_transversal}")
+            if (self.liz_pt_threshold_transversal is not None
+                    and self.liz_pt_target_transversal
+                    > self.liz_pt_threshold_transversal):
+                raise ValueError(
+                    "liz_pt_target_transversal must not exceed "
+                    "liz_pt_threshold_transversal")
         if self.liz_pt_park not in {"memory", "temp", "home"}:
             raise ValueError(
                 f"liz_pt_park must be 'memory', 'temp' or 'home', "
@@ -1701,6 +1716,8 @@ class MovementPlanner:
         if f_zone is None or state.zone_contents.get(f_zone):
             return []    # 外側 Temp がない / 空いていない — 発動を諦める
 
+        tgt = (self.config.liz_pt_target_transversal
+               if self.config.liz_pt_target_transversal is not None else thr)
         ops_out: List[Operation] = []
         # 1) チェーン一括退避 (M が空なら不要)
         chain = list(state.zone_contents.get(m_zone, []))
@@ -1710,9 +1727,9 @@ class MovementPlanner:
             ops_out.append(SplitOp(ion_id=boundary, dst_zone_id=f_zone,
                                    src_zone_id=m_zone))
             state.split_chain(boundary, f_zone)
-        # 2)–5) 隔離冷却サイクル
+        # 2)–5) 隔離冷却サイクル (到達目標 = tgt、発火閾値 thr と分離可)
         for _ in range(max(1, self.config.liz_pt_max_iters)):
-            if state.phonon_transversal.get(d_i, 0.0) <= thr:
+            if state.phonon_transversal.get(d_i, 0.0) <= tgt:
                 break
             ops_out.extend(self._move_ion_to_zone(anc, m_zone, state))
             ops_out.extend(self._move_ion_to_zone(d_i, m_zone, state))
@@ -1742,13 +1759,15 @@ class MovementPlanner:
         park = self.architecture.get_adjacent_temp(liz, "left")
         if park is None or state.zone_contents.get(park):
             return []
+        tgt = (self.config.liz_pt_target_transversal
+               if self.config.liz_pt_target_transversal is not None else thr)
         ops_out: List[Operation] = []
         # ペアを LIZ チェーンの左端に整列: anc を左端へ → d_i を左端へ
         # (anc は 2 番目へ押し込まれ、[d_i, anc, coolants...] になる)
         ops_out.extend(self._position_for_shuttle(anc, liz, False, state))
         ops_out.extend(self._position_for_shuttle(d_i, liz, False, state))
         for _ in range(max(1, self.config.liz_pt_max_iters)):
-            if state.phonon_transversal.get(d_i, 0.0) <= thr:
+            if state.phonon_transversal.get(d_i, 0.0) <= tgt:
                 break
             contents = state.zone_contents[liz]
             if contents[:2] != [d_i, anc]:
