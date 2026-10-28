@@ -1679,21 +1679,28 @@ class MovementPlanner:
         thr = self.config.liz_pt_threshold_transversal
         if thr is None or not state.phonon_params:
             return []
+        if not hasattr(self, 'lpt_skips'):
+            from collections import Counter
+            self.lpt_skips = Counter()
         if not (isinstance(op, GateOp) and op.type == 'MS' and op.targets):
             return []
         data = [t for t in op.targets if t not in self._measure_ancillas]
         ancs = [t for t in op.targets if t in self._measure_ancillas]
         if len(data) != 1 or len(ancs) != 1:
+            self.lpt_skips['bad_targets'] += 1
             return []
         d_i, anc = data[0], ancs[0]
         if state.phonon_transversal.get(d_i, 0.0) <= thr:
+            self.lpt_skips['below_thr'] += 1
             return []
         liz = state.locate(anc)
         if not self.architecture.is_liz(liz) or state.locate(d_i) != liz:
+            self.lpt_skips['not_in_liz'] += 1
             return []
         coolants = [i for i in state.zone_contents.get(liz, [])
                     if i in self._resident]
         if not coolants:
+            self.lpt_skips['no_coolant'] += 1
             return []    # coolant 無しでは不可 (10/26 会議)
         cool_dur = (self.config.coolant_recool_us
                     if self.config.coolant_recool_us is not None
@@ -1758,20 +1765,25 @@ class MovementPlanner:
         """
         park = self.architecture.get_adjacent_temp(liz, "left")
         if park is None or state.zone_contents.get(park):
+            self.lpt_skips['park_busy'] += 1
             return []
         tgt = (self.config.liz_pt_target_transversal
                if self.config.liz_pt_target_transversal is not None else thr)
+        self.lpt_skips['fired'] += 1
         ops_out: List[Operation] = []
         # ペアを LIZ チェーンの左端に整列: anc を左端へ → d_i を左端へ
         # (anc は 2 番目へ押し込まれ、[d_i, anc, coolants...] になる)
         ops_out.extend(self._position_for_shuttle(anc, liz, False, state))
         ops_out.extend(self._position_for_shuttle(d_i, liz, False, state))
+        n_cycles = 0
         for _ in range(max(1, self.config.liz_pt_max_iters)):
             if state.phonon_transversal.get(d_i, 0.0) <= tgt:
                 break
             contents = state.zone_contents[liz]
             if contents[:2] != [d_i, anc]:
+                self.lpt_skips['order_break'] += 1
                 break    # 想定外の並び — 発動を諦める
+            n_cycles += 1
             boundary = contents[1]
             ops_out.append(SplitOp(ion_id=boundary, dst_zone_id=park,
                                    src_zone_id=liz))
@@ -1780,6 +1792,10 @@ class MovementPlanner:
             left_z, right_z = min(park, liz), max(park, liz)
             ops_out.append(MergeOp(zone_left=left_z, zone_right=right_z))
             state.merge_chains(left_z, right_z)
+        # 診断: 使用サイクル数とエピソード終了時の d_i の値の分布
+        self.lpt_skips[f'cycles_{n_cycles}'] += 1
+        exit_v = state.phonon_transversal.get(d_i, 0.0)
+        self.lpt_skips[f'exit_{round(exit_v, 1):g}'] += 1
         if ops_out:
             self.episodes.append([id(o) for o in ops_out])
         return ops_out
