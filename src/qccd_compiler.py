@@ -1735,9 +1735,17 @@ class MovementPlanner:
                                    src_zone_id=m_zone))
             state.split_chain(boundary, f_zone)
         # 2)–5) 隔離冷却サイクル (到達目標 = tgt、発火閾値 thr と分離可)
+        n_cyc = 0
         for _ in range(max(1, self.config.liz_pt_max_iters)):
-            if state.phonon_transversal.get(d_i, 0.0) <= tgt:
+            cur = state.phonon_transversal.get(d_i, 0.0)
+            if cur <= tgt:
                 break
+            # 収束判定 (temp 変種と同じ): 下がらなくなったら空転前に打ち切る
+            if n_cyc > 0 and cur >= prev_v - 1e-3:
+                self.lpt_skips['floor_break'] += 1
+                break
+            prev_v = cur
+            n_cyc += 1
             ops_out.extend(self._move_ion_to_zone(anc, m_zone, state))
             ops_out.extend(self._move_ion_to_zone(d_i, m_zone, state))
             ops_out.append(self._emit_cool_op(liz, state, cool_dur))
@@ -1770,6 +1778,8 @@ class MovementPlanner:
         tgt = (self.config.liz_pt_target_transversal
                if self.config.liz_pt_target_transversal is not None else thr)
         self.lpt_skips['fired'] += 1
+        entry_v = state.phonon_transversal.get(d_i, 0.0)
+        self.lpt_skips[f'entry_{round(entry_v, 0):g}'] += 1
         ops_out: List[Operation] = []
         # ペアを LIZ チェーンの左端に整列: anc を左端へ → d_i を左端へ
         # (anc は 2 番目へ押し込まれ、[d_i, anc, coolants...] になる)
@@ -1777,8 +1787,16 @@ class MovementPlanner:
         ops_out.extend(self._position_for_shuttle(d_i, liz, False, state))
         n_cycles = 0
         for _ in range(max(1, self.config.liz_pt_max_iters)):
-            if state.phonon_transversal.get(d_i, 0.0) <= tgt:
+            cur = state.phonon_transversal.get(d_i, 0.0)
+            if cur <= tgt:
                 break
+            # 収束判定: 前サイクルから実質下がっていなければ、サイクルの
+            # 到達可能床 (per-cycle コストと coolant 残留値で決まる) が
+            # tgt より上 — これ以上回しても空転するため打ち切る
+            if n_cycles > 0 and cur >= prev_v - 1e-3:
+                self.lpt_skips['floor_break'] += 1
+                break
+            prev_v = cur
             contents = state.zone_contents[liz]
             if contents[:2] != [d_i, anc]:
                 self.lpt_skips['order_break'] += 1
