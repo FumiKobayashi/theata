@@ -1663,8 +1663,14 @@ class MovementPlanner:
                       state: QCCDState) -> List[Operation]:
         """LIZ predictive trigger (2026-10-26 会議、liz_pt_threshold_transversal)。
 
-        CX (MS) 直後の検査: ゲート対象データ d_i の transversal フォノンが
-        閾値超なら、次の隔離冷却エピソードを挿入する。
+        CX (MS) 直前の検査: ゲート対象データ d_i の transversal フォノンが
+        閾値超なら、隔離冷却エピソードを挿入してからゲートを撃つ。
+        注意 (11/3 診断): 停止条件は①閾値到達 ②floor_break (1 サイクルの
+        低下が 1e-3 未満 = サイクル床 n̄_res + e_split + 2e_merge に到達)
+        ③N_max。θ < 床 のとき②が支配的 (= cool-to-floor として動作)。
+        背景加熱は op 追加時に時計で加算されるため、エピソード自身の
+        所要時間分 (n_cycles × t_cool × rate) はループ内の cur には
+        見えず、ゲート時値に乗る。
           1) 左側 Memory のチェーンを外側 Temp へ一括退避 (SplitOp 1 発。
              split_chain の方向非対称により一括退避は左方向のみ可能なため
              v1 は左側 M に固定)
