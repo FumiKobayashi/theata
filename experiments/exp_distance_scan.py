@@ -53,6 +53,8 @@ DISTANCE_CIRCUITS = {
     5: ('d5_reuse1', 'd5_reuse1_reverse_cnot', [0, 1, 2, 3, 4]),
     7: ('d7_reuse1', 'd7_reuse1_reverse_cnot', [0, 1, 2, 3, 4, 5, 6]),
     9: ('d9_reuse1', 'd9_reuse1_reverse_cnot', [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+    11: ('d11_reuse1', 'd11_reuse1_reverse_cnot', list(range(11))),
+    13: ('d13_reuse1', 'd13_reuse1_reverse_cnot', list(range(13))),
 }
 
 
