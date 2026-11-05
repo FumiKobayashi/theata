@@ -13,7 +13,13 @@ Conditions match fig4 (t = 1 ms, n_res = 0, Mainz heating, LPT temp
 N_max = 32), swept over theta = 2.8 / 1.5 / 0.2 and d = 3 / 5 / 7.
 Compile only.
 
-Output: results/lpt_episode_trace_1105/trace.json
+2026-11-05 第 2 弾: n_res > 0 の要件グリッド条件 (theta = r + 0.1,
+グリッドの既定則) も同じトレースで観測する。theta は床 r + 0.15 より
+下なので閾値到達では終われず、全エピソードが floor_break で終わる
+はず — その場合のサイクル数分布を実測する。
+
+Output: results/lpt_episode_trace_1105/trace.json      (r = 0)
+        results/lpt_episode_trace_1105/trace_rpos.json (r > 0)
 Usage:  python experiments/exp_lpt_episode_trace.py
 """
 
@@ -81,12 +87,16 @@ def _traced(self, op, state):
 QC.MovementPlanner._maybe_liz_pt = _traced
 
 
-def run(d, theta):
+def run(d, theta, residual=0.0):
     SHARED.clear()
     TRACE.clear()
     STATE.update({"ms_idx": 0, "round_of": {}, "round": 0})
+    overrides = {"cool": 1000.0}
+    if residual:
+        for mode in ("axial", "transversal", "transversal2"):
+            overrides[f"phonon_cool_residual_{mode}"] = residual
     tp = load_time_parameters(str(ROOT / "params" / "mainz_heating.json"),
-                              overrides={"cool": 1000.0})
+                              overrides=overrides)
     cfg = dict(resident_coolant_ids=[9000, 9001],
                coolant_recool_us=1000.0,
                cool_ancilla_after_measure_us=1000.0,
@@ -103,21 +113,34 @@ def run(d, theta):
         mean_c = (sum(r["cycles"] for r in part) / len(part)
                   if part else 0.0)
         halves.append((rate, mean_c))
-    print(f"d={d} th={theta}: {n} MS, fired {len(fired)} "
-          f"({len(fired)/n:.0%}) | 前半 fire {halves[0][0]:.0%} "
-          f"cycles {halves[0][1]:.2f} | 後半 fire {halves[1][0]:.0%} "
-          f"cycles {halves[1][1]:.2f}")
-    return {"d": d, "theta": theta, "n_ms": n, "trace": list(TRACE)}
+    reasons = Counter(r["reason"] for r in fired)
+    print(f"d={d} th={theta} r={residual}: {n} MS, fired {len(fired)} "
+          f"({len(fired)/n:.0%}) {dict(reasons)} | "
+          f"前半 fire {halves[0][0]:.0%} cycles {halves[0][1]:.2f} | "
+          f"後半 fire {halves[1][0]:.0%} cycles {halves[1][1]:.2f}")
+    return {"d": d, "theta": theta, "residual": residual,
+            "n_ms": n, "trace": list(TRACE)}
 
 
 def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    runs = [run(d, th) for d in (3, 5, 7) for th in (2.8, 1.5, 0.2)]
-    out = OUT_DIR / "trace.json"
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump({"note": "t=1ms r=0 mainz N_max=32 temp, 3 rounds",
-                   "runs": runs}, f)
-    print(f"saved: {out}")
+    which = sys.argv[1] if len(sys.argv) > 1 else "all"
+    if which in ("all", "r0"):
+        runs = [run(d, th) for d in (3, 5, 7) for th in (2.8, 1.5, 0.2)]
+        out = OUT_DIR / "trace.json"
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump({"note": "t=1ms r=0 mainz N_max=32 temp, 3 rounds",
+                       "runs": runs}, f)
+        print(f"saved: {out}")
+    if which in ("all", "rpos"):
+        # 要件グリッドの既定則 theta = r + 0.1 (床 r + 0.15 の下)
+        runs = [run(d, round(r + 0.1, 2), residual=r)
+                for d in (3, 5, 7) for r in (0.5, 1.0, 2.0)]
+        out = OUT_DIR / "trace_rpos.json"
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump({"note": "t=1ms theta=r+0.1 mainz N_max=32 temp, "
+                               "3 rounds", "runs": runs}, f)
+        print(f"saved: {out}")
 
 
 if __name__ == "__main__":
