@@ -58,10 +58,12 @@ def _traced(self, op, state):
         STATE["round_of"][id(self)] = STATE["round"]
     before = dict(SHARED)
     entry = max(state.phonon_transversal.get(t, 0.0) for t in op.targets)
+    t_us = state.clock_us          # 計画時近似時計 (エピソード挿入前)
     out = _orig(self, op, state)
     after = SHARED
     fired = after["fired"] > before.get("fired", 0)
     rec = {"ms": STATE["ms_idx"], "round": STATE["round_of"][id(self)],
+           "t_us": round(t_us, 1),
            "fired": fired, "entry": round(entry, 3)}
     if fired:
         cycles = next((int(k[7:]) for k in after
