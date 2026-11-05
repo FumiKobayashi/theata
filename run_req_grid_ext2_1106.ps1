@@ -20,8 +20,10 @@ $rLow = @('0','0.25','0.5','0.75','1.0','1.25','1.5','1.75','2.0')
 
 $jobs = @()
 foreach ($t in 1..10) { $jobs += ,@($t, '6') }
-# 11/6 追加 2: L57 の Λ=1 等高線が (t=10, r~3.7) と (t~15, r~3) の間で
-# 欠測により途切れるため、境界帯の 4 セルを埋めて連続にする。
+# 11/6 addition 2: the L57 contour breaks between (10 ms, r ~ 3.7)
+# and (15 ms, r ~ 3) over missing cells; fill the boundary band.
+# NOTE: keep this file ASCII -- PS 5.1 reads BOM-less UTF-8 as ANSI
+# and multibyte comments can garble into syntax errors.
 foreach ($t in @(15, 22)) {
     foreach ($rs in @('3.5', '4.0')) { $jobs += ,@($t, $rs) }
 }
