@@ -1,8 +1,26 @@
-# Transport-Aware Syndrome Measurement Circuit Compiler for 1D QCCD Architecture
+# THeatA: Transport- and Heating-aware QEC Simulation for 1D QCCD Trapped-Ion Systems
 
 A compiler and simulator for syndrome measurement circuits on a one-dimensional QCCD (quantum charge-coupled device) architecture.
 It compiles surface-code syndrome measurement circuits into transport-level instruction sequences, tracks the motional heating of every ion through transport and elapsed time, and evaluates logical error rates through a Stim/PyMatching noise pipeline whose gate error rates depend on the tracked phonon numbers.
 Cooling strategies (threshold-triggered, predictive, and LIZ-resident coolants) are configurable compiler policies.
+
+This repository accompanies the paper:
+
+> *THeatA: Transport- and Heating-aware QEC simulation with Cooling Strategies for QCCD Trapped-Ion Systems* (2026). arXiv:XXXX.XXXXX <!-- TODO: fill in after the arXiv announcement -->
+
+## Quickstart
+
+```bash
+pip install -r requirements.txt
+```
+
+Two guided notebooks are the best entry points:
+
+- `notebooks/hem3_demo.ipynb` — the whole pipeline in one short run: compile a d = 3
+  surface-code circuit, watch per-ion phonon tracking, toggle a cooling policy with one
+  config line, and measure the logical error rate.
+- `notebooks/qec_simulation_walkthrough.ipynb` — how to bring your own QEC code,
+  with the Steane [[7,1,3]] code generated end-to-end from its stabilizer list via Stim.
 
 ## Project Layout
 
@@ -208,6 +226,10 @@ Seven-zone one-dimensional layout: `T(20) - M(20) - T(20) - L(4) - T(20) - M(20)
 - M: Memory zone (ion storage)
 - L: LIZ (laser interaction zone, where gates execute)
 
+The accompanying paper does not distinguish the staging zones and denotes the same
+layout `M-M-M-L-M-M-M`; the T/M distinction here is an internal detail of the compiler
+(`QCCDArchitecture.simple_mlm`).
+
 ## Experiment Scripts
 
 Experiment scripts live in `experiments/` and analyze the compiler output in various ways.
@@ -229,3 +251,7 @@ The main current scripts:
 | `generate_*.py` | Circuit generators (surface and general CSS codes) |
 
 Earlier exploratory scripts (`exp_parallel.py`, `exp_placement.py`, `exp_interleave.py`, `exp_memory_reorder.py`, ...) are kept for reference.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
