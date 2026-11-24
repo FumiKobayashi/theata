@@ -6,7 +6,7 @@ Cooling strategies (threshold-triggered, predictive, and LIZ-resident coolants) 
 
 This repository accompanies the paper:
 
-> *THeatA: Transport- and Heating-aware QEC simulation with Cooling Strategies for QCCD Trapped-Ion Systems* (2026). arXiv:XXXX.XXXXX <!-- TODO: fill in after the arXiv announcement -->
+> *THeatA: Transport- and Heating-aware QEC simulation with Cooling Strategies for QCCD Trapped-Ion Systems* (2026). [arXiv:2611.30676](https://arxiv.org/abs/2611.30676)
 
 ## Quickstart
 
