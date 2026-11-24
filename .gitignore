@@ -13,3 +13,4 @@ plots/**
 !plots/**/.gitkeep
 __archive__/
 .claude/
+*.ps1
