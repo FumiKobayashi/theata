@@ -12,7 +12,7 @@ test circuits (真に分散を表現した Stim 回路群) を作る前に、ど
 transversal max、lookup に入る値そのもの) がどれだけばらつくか。
 
 | 構成 (3 rounds, no cooling) | ゲート数 | 平均 | 分散 | 範囲 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | d = 3 | 72 | 1.55 | 1.05 | 0.10–3.70 |
 | d = 5 | 240 | 6.00 | 19.9 | 0.10–15.0 |
 
@@ -60,6 +60,24 @@ test circuits = **(b) を κ でサンプルした回路群**。(a) は両者共
 入っている)、(c) は channel の関数形の中の話として平井さんに預ける。
 この分解なら二重計上なしで「平均 DEM vs soft decoder」の差が (b) の寄与として
 きれいに読める。
+
+## 参考文献 (11/26 追記)
+
+**arXiv:2611.26506 "When the Noise Gets Noisy: Quantum Error Correction with
+Disordered Noise and Misinformed Decoding"** (Aitchison et al., 2026-11-19) が
+本計画の設定そのもの: 誤り率 p_i を分布 P から引き、デコーダの知識を
+characterized (実現値既知) / uncharacterized (分布のみ既知) / mischaracterized
+(誤った事前分布) で比較。lognormal を含む分布で surface code を評価。
+
+- 性能は P の平均二値エントロピー H̄[P] と平均 Bhattacharyya 係数 B̄[P] で
+  特徴付けられる → 本計画の LER / LER 分散の理論照合先に使える
+- ⚠**最重要**: uncharacterized デコーダ (分布は知るが実現値は知らない) は
+  「平均だけ知っているのと同性能」と明言。**soft info のゲインは shot ごとの
+  実現値情報 (channel-state information) を入れたときにしか出ない** →
+  「分散の soft info を入れた decoder」は genie 上界 (per-realization DEM) か、
+  実現値と相関するサイド観測量を入れる設計にする必要がある
+- 同論文の time-correlated ケース (p を shot ごとに引いて全 round 固定) は
+  本計画の「1 実現値 = 1 回路」粒度と同じ
 
 ---
 データ再生成: `venv\Scripts\python.exe hackathon\make_nbar_dist_nocool.py`
