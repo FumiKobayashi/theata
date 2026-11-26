@@ -1,0 +1,25 @@
+config,mode,round,n_gates,mean_nbar,max_nbar,cools
+no cooling,reset,1,24,1.329,2.901,0
+no cooling,reset,2,24,1.832,3.700,0
+no cooling,reset,3,24,1.485,3.105,0
+no cooling,reset,4,24,1.860,3.570,0
+no cooling,reset,5,24,1.280,2.757,0
+no cooling,reset,6,24,1.695,3.264,0
+no cooling,carry,1,24,1.329,2.901,0
+no cooling,carry,2,24,4.760,6.637,0
+no cooling,carry,3,24,7.980,9.584,0
+no cooling,carry,4,24,11.468,13.158,0
+no cooling,carry,5,24,14.450,15.959,0
+no cooling,carry,6,24,17.640,19.185,0
+theta=1.5,reset,1,24,0.639,1.398,3
+theta=1.5,reset,2,24,0.783,1.437,4
+theta=1.5,reset,3,24,0.617,1.433,4
+theta=1.5,reset,4,24,0.719,1.311,4
+theta=1.5,reset,5,24,0.672,1.481,3
+theta=1.5,reset,6,24,0.739,1.374,4
+theta=1.5,carry,1,24,0.639,1.398,3
+theta=1.5,carry,2,24,0.673,1.398,8
+theta=1.5,carry,3,24,0.792,1.417,6
+theta=1.5,carry,4,24,0.689,1.433,8
+theta=1.5,carry,5,24,0.838,1.495,6
+theta=1.5,carry,6,24,0.738,1.491,7

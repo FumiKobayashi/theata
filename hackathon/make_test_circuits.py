@@ -51,7 +51,9 @@ from exp_multi_round import placement_greedy_alt
 LOOKUP = PauliErrorLookup()
 
 
-def compile_rounds(d, rounds, cool_threshold=None):
+def compile_rounds(d, rounds, cool_threshold=None, carry_phonons=False):
+    """carry_phonons=True で前ラウンドの最終 per-ion フォノンを次ラウンドに
+    引き継ぐ (既定 False = 論文設定のラウンド境界リセット)。"""
     forward, reverse, observable = DISTANCE_CIRCUITS[d]
     fwd_mod = __import__(forward)
     half = (len(fwd_mod.DATA_QUBITS) + 1) // 2
@@ -63,7 +65,7 @@ def compile_rounds(d, rounds, cool_threshold=None):
     if cool_threshold is not None:
         kwargs["cool_threshold_transversal"] = cool_threshold
     cfg = CompilerConfig(**kwargs)
-    results, zone_contents = [], None
+    results, zone_contents, prev_phonons = [], None, None
     for r in range(1, rounds + 1):
         name = forward if r % 2 == 1 else reverse
         m = __import__(name)
@@ -71,9 +73,16 @@ def compile_rounds(d, rounds, cool_threshold=None):
         if zone_contents is not None:
             placement = {ion: z for z in sorted(zone_contents)
                          for ion in zone_contents[z]}
-        cr = QCCDCompiler(arch, config=cfg).compile(dag, placement)
+        ckw = {}
+        if carry_phonons and prev_phonons is not None:
+            ckw["initial_phonons"] = prev_phonons
+        cr = QCCDCompiler(arch, config=cfg).compile(dag, placement, **ckw)
         results.append(cr)
         placement, zone_contents = cr.final_placement, cr.final_zone_contents
+        pd = cr.phonon_data or {}
+        prev_phonons = {"axial": pd.get("per_ion_axial", {}),
+                        "transversal": pd.get("per_ion_transversal", {}),
+                        "transversal2": pd.get("per_ion_transversal2", {})}
     return results, observable
 
 

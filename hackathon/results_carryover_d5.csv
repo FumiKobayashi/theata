@@ -1,0 +1,5 @@
+config,mode,rounds,shots,ler,cools,time_ms,mean_nbar,max_nbar,gates_clipped
+no cooling,reset,6,100000,0.36841,0,753.1,6.241,15.796,0
+no cooling,carry,6,100000,0.50212,0,753.1,42.712,88.830,360
+theta=1.5,reset,6,100000,0.00393,248,842.0,0.470,1.500,0
+theta=1.5,carry,6,100000,0.00309,337,874.6,0.357,1.500,0

@@ -2674,16 +2674,32 @@ class QCCDCompiler:
         dag: DAG,
         initial_placement: Dict[int, int],
         partition: Optional[StabilizerPartition] = None,
+        initial_phonons: Optional[dict] = None,
     ) -> CompileResult:
         """
         Args:
             dag: 依存関係グラフ
             initial_placement: ion_id -> zone_id の初期配置
             partition: ancilla -> LIZ の割り当て。None の場合は単一 LIZ 互換動作
+            initial_phonons: 前ラウンドから引き継ぐ per-ion フォノン (opt-in)。
+                {'axial': {ion: v}, 'transversal': {...}, 'transversal2': {...}}
+                形式 (= 前 CompileResult の phonon_data['per_ion_*'])。
+                None なら従来通り全イオン 0 から開始 (ラウンド境界リセット)。
 
         Returns:
             CompileResult: timesteps（並列化済み）と統計情報
         """
+        def _seeded_state(planner):
+            # plan() 内の state 構築と同一 + フォノン辞書の事前登録
+            # (_init_phonon は未登録イオンのみ 0 化するため上書きされない)
+            st = QCCDState(architecture=self.architecture)
+            st.phonon_params = dict(planner.phonon_params)
+            st.phonon_axial.update(initial_phonons.get('axial', {}))
+            st.phonon_transversal.update(initial_phonons.get('transversal', {}))
+            st.phonon_transversal2.update(initial_phonons.get('transversal2', {}))
+            for _ion, _zone in initial_placement.items():
+                st.place_ion_any(_ion, _zone)
+            return st
         # 複数 LIZ 用の partition を MovementPlanner に渡す
         self._planner.partition = partition
 
@@ -2698,11 +2714,19 @@ class QCCDCompiler:
                                            time_params=self._time_params)
             planner1.partition = partition
             planner1._record_windows = True
-            planner1.plan(dag, dict(initial_placement))
+            if initial_phonons is not None:
+                planner1.plan(dag, dict(initial_placement),
+                              state=_seeded_state(planner1))
+            else:
+                planner1.plan(dag, dict(initial_placement))
             self._planner.window_table = planner1._recorded_windows
 
         # Phase 1: 平坦なAtomicOp列を生成
-        flat_ops = self._planner.plan(dag, initial_placement)
+        if initial_phonons is not None:
+            flat_ops = self._planner.plan(dag, initial_placement,
+                                          state=_seeded_state(self._planner))
+        else:
+            flat_ops = self._planner.plan(dag, initial_placement)
 
         # Phase 2: TimeStep列に並列化
         timesteps = self._scheduler.schedule(flat_ops)
