@@ -14,3 +14,4 @@ plots/**
 __archive__/
 .claude/
 *.ps1
+hackathon/test_circuits/
