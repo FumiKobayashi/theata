@@ -145,6 +145,36 @@ for zone_id in sorted(result1.final_zone_contents.keys()):
 result2 = compiler.compile(dag2, ordered_placement)
 ```
 
+#### Carrying Phonon Numbers Across Rounds
+
+By default each round starts from a fresh `QCCDState`, so phonon numbers and the
+planning clock are reset to zero at every round boundary. This is the modelling
+simplification described in Appendix A of the paper, and it makes the reported
+heating a lower bound. Pass `initial_phonons` (`ion_id -> (axial, transversal1,
+transversal2)`) and `initial_clock_us` to `compile()` to carry the previous
+round's final values over instead; both default to `None`, which reproduces the
+reset behaviour exactly. The same option is exposed as
+`build_noisy_circuit(..., carry_phonon=True)` and `--carry-phonon` in
+`experiments/exp_distance_scan.py`.
+
+```python
+# Round 2: carry the phonon numbers and the clock over from round 1
+pd1 = result1.phonon_data
+seed = {ion: (pd1['per_ion_axial'][ion],
+              pd1['per_ion_transversal'][ion],
+              pd1['per_ion_transversal2'][ion])
+        for ion in pd1['per_ion_axial']}
+
+result2 = compiler.compile(dag2, ordered_placement,
+                           initial_phonons=seed,
+                           initial_clock_us=pd1['planning_clock_us'])
+```
+
+`initial_phonons` also accepts a residual phonon number left over from initial
+Doppler / sideband cooling. It cannot be combined with an explicit `state=`
+argument to `MovementPlanner.plan()` — seed that state directly via
+`QCCDState.seed_phonons()` instead.
+
 ### CompilerConfig Options
 
 | Option | Type | Default | Description |
@@ -241,7 +271,7 @@ The main current scripts:
 |---------|------|
 | `exp_cooling_distance_scan.py` | Distance scan (d = 3/5/7) with cooling policies, scaling-ratio (Λ) readout, and the phonon-number-cap sweep |
 | `exp_cooling_pl.py` | Logical error rate of individual cooling policies |
-| `exp_distance_scan.py` | Distance scan without cooling (also hosts the circuit registry) |
+| `exp_distance_scan.py` | Distance scan without cooling (also hosts the circuit registry); `--carry-phonon` keeps the phonon numbers across round boundaries |
 | `exp_multi_round.py` | Multi-round compilation with placement carry-over (also hosts the greedy-alternating placement) |
 | `exp_noise_injection.py` | Phonon-based Stim noise channels (library used by the scripts above) |
 | `exp_multi_liz_pl.py` | Logical error rate of multi-LIZ (2-LIZ) compilations |
