@@ -47,8 +47,9 @@ class StateMachinePlanner(MovementPlanner):
         self._current_dag: Optional[DAG] = None
         self._demand_cache: Optional[Tuple[int, Dict[int, int]]] = None
 
-    def plan(self, dag, initial_placement=None, state=None):
-        ops = super().plan(dag, initial_placement, state)
+    def plan(self, dag, initial_placement=None, state=None, **kwargs):
+        # kwargs = initial_phonons / initial_clock_us (MovementPlanner.plan 参照)
+        ops = super().plan(dag, initial_placement, state, **kwargs)
         # 終端で staging を清算する。temp に残したままラウンドを跨ぐと、
         # 次ラウンドの planner (fresh instance) は temp 発の搬送経路を
         # 持たないため、必ず memory へ返してから終わる。

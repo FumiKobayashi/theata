@@ -16,7 +16,7 @@ QCCD Compiler: DAG → Parallel Executable QCCD Native Circuit
 """
 
 from dataclasses import dataclass, field, asdict, replace
-from typing import List, Dict, Set, Optional, Tuple
+from typing import List, Dict, Sequence, Set, Optional, Tuple
 from ast_def import (
     Location, QubitDecl, Operation, TimeStep,
     GateOp, ShuttleOp, SwapOp, SplitOp, MergeOp, MeasureOp, ResetOp, CoolOp,
@@ -482,6 +482,40 @@ class QCCDState:
             self.phonon_axial[ion_id] = 0.0
             self.phonon_transversal[ion_id] = 0.0
             self.phonon_transversal2[ion_id] = 0.0
+
+    def seed_phonons(self, initial_phonons: Dict[int, Sequence[float]]):
+        """初期フォノン数を注入する（イオン配置の *後* に呼ぶ）。
+
+        ラウンド境界でフォノンを 0 にリセットせず前ラウンド最終値を
+        引き継ぐ用途 (QCCDCompiler.compile(initial_phonons=...)) と、
+        初期冷却後の残留値 n̄₀ を与える用途に使う。
+
+        Args:
+            initial_phonons: ion_id -> (axial, transversal1, transversal2)。
+                長さ 2 のタプルなら transversal2 は第 1 transverse モードと
+                同値にフォールバックする (TimeParameters の *_transversal2=None
+                規約に合わせる)。
+
+        Raises:
+            ValueError: 未配置のイオンが含まれる場合 / タプル長が 2, 3 以外の場合。
+        """
+        for ion_id, modes in initial_phonons.items():
+            if ion_id not in self.ion_locations:
+                raise ValueError(
+                    f"Ion {ion_id} in initial_phonons is not placed in this state")
+            values = tuple(modes)
+            if len(values) == 2:
+                axial, tr1 = values
+                tr2 = tr1
+            elif len(values) == 3:
+                axial, tr1, tr2 = values
+            else:
+                raise ValueError(
+                    f"initial_phonons[{ion_id}] must be "
+                    f"(axial, transversal1[, transversal2]), got {modes!r}")
+            self.phonon_axial[ion_id] = float(axial)
+            self.phonon_transversal[ion_id] = float(tr1)
+            self.phonon_transversal2[ion_id] = float(tr2)
 
     def place_ion(self, ion_id: int, zone_id: int):
         """イオンをMemory Zoneに配置（初期配置用、Memory限定）"""
@@ -1084,8 +1118,28 @@ class MovementPlanner:
                     ops.extend(self._move_ion_to_zone(ion, evict_dst, state))
         return ops
 
+    def _make_initial_state(
+        self,
+        initial_placement: Dict[int, int],
+        initial_phonons: Optional[Dict[int, Sequence[float]]] = None,
+        initial_clock_us: Optional[float] = None,
+    ) -> QCCDState:
+        """初期配置（+ 任意の初期フォノン / 初期時刻）から QCCDState を作る。"""
+        state = QCCDState(architecture=self.architecture)
+        # フォノン追跡を有効化（sim_params 経由の一元化パラメータ）
+        state.phonon_params = dict(self.phonon_params)
+        for ion_id, zone_id in initial_placement.items():
+            state.place_ion_any(ion_id, zone_id)
+        if initial_phonons:
+            state.seed_phonons(initial_phonons)
+        if initial_clock_us is not None:
+            state.clock_us = float(initial_clock_us)
+        return state
+
     def plan(self, dag: DAG, initial_placement: Dict[int, int] = None,
-             state: QCCDState = None) -> List[Operation]:
+             state: QCCDState = None,
+             initial_phonons: Optional[Dict[int, Sequence[float]]] = None,
+             initial_clock_us: Optional[float] = None) -> List[Operation]:
         """
         メインエントリーポイント: DAG → 平坦なAtomicOp列
 
@@ -1094,16 +1148,24 @@ class MovementPlanner:
             initial_placement: ion_id -> zone_id（state 指定時は不要）
             state: 既存の QCCDState を引き継いで plan する（per-LIZ stream 用。
                 複数の sub-DAG を同一状態上で順に plan するときに使う）
+            initial_phonons: ion_id -> (axial, tr1, tr2) の初期フォノン数。
+                None（既定）なら全モード 0 から始める＝従来動作。
+                state 指定時は使えない（state 側で seed 済みのはずのため）。
+            initial_clock_us: 計画時近似時計の初期値 [μs]。None（既定）なら 0。
+                ラウンドを跨いで background heating を連続させたいときに
+                前ラウンドの planning_clock_us を渡す。
 
         Returns:
             List[Operation]: Split/Swap/Merge/Gate の平坦な列（ゾーンアノテーション付き）
         """
         if state is None:
-            state = QCCDState(architecture=self.architecture)
-            # フォノン追跡を有効化（sim_params 経由の一元化パラメータ）
-            state.phonon_params = dict(self.phonon_params)
-            for ion_id, zone_id in initial_placement.items():
-                state.place_ion_any(ion_id, zone_id)
+            state = self._make_initial_state(
+                initial_placement, initial_phonons, initial_clock_us)
+        elif initial_phonons is not None or initial_clock_us is not None:
+            raise ValueError(
+                "initial_phonons / initial_clock_us cannot be combined with an "
+                "explicit state; seed the state directly "
+                "(QCCDState.seed_phonons / state.clock_us) instead.")
 
         dag.reset_execution()
         # 出力リスト = 計画時近似時計のフック (op 追加ごとに background heating)
@@ -2674,12 +2736,21 @@ class QCCDCompiler:
         dag: DAG,
         initial_placement: Dict[int, int],
         partition: Optional[StabilizerPartition] = None,
+        initial_phonons: Optional[Dict[int, Sequence[float]]] = None,
+        initial_clock_us: Optional[float] = None,
     ) -> CompileResult:
         """
         Args:
             dag: 依存関係グラフ
             initial_placement: ion_id -> zone_id の初期配置
             partition: ancilla -> LIZ の割り当て。None の場合は単一 LIZ 互換動作
+            initial_phonons: ion_id -> (axial, transversal1, transversal2) の
+                初期フォノン数。None（既定）なら全モード 0 から始める＝従来動作。
+                QEC ラウンド境界でフォノンを 0 にリセットせず引き継ぐ場合は、
+                前ラウンドの phonon_data['per_ion_*'] から組み立てて渡す。
+            initial_clock_us: 計画時近似時計の初期値 [μs]。None（既定）なら 0。
+                ラウンドを跨いで background heating を連続させるときに、
+                前ラウンドの phonon_data['planning_clock_us'] を渡す。
 
         Returns:
             CompileResult: timesteps（並列化済み）と統計情報
@@ -2698,11 +2769,15 @@ class QCCDCompiler:
                                            time_params=self._time_params)
             planner1.partition = partition
             planner1._record_windows = True
-            planner1.plan(dag, dict(initial_placement))
+            planner1.plan(dag, dict(initial_placement),
+                          initial_phonons=initial_phonons,
+                          initial_clock_us=initial_clock_us)
             self._planner.window_table = planner1._recorded_windows
 
         # Phase 1: 平坦なAtomicOp列を生成
-        flat_ops = self._planner.plan(dag, initial_placement)
+        flat_ops = self._planner.plan(dag, initial_placement,
+                                      initial_phonons=initial_phonons,
+                                      initial_clock_us=initial_clock_us)
 
         # Phase 2: TimeStep列に並列化
         timesteps = self._scheduler.schedule(flat_ops)
